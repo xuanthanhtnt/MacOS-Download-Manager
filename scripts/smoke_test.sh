@@ -101,7 +101,11 @@ fi
 for i in $(seq 1 180); do [ -s "$REPORT" ] && break; sleep 1; done
 echo "--- video tools self-test ---"
 cat "$REPORT" 2>/dev/null || echo "(no report)"
-if [ -s "$REPORT" ] && grep -q "^ytdlp-status=0" "$REPORT" && grep -q "^deno-status=0" "$REPORT"; then
+if grep -q "^child-quarantine=yes" "$REPORT" 2>/dev/null; then
+  # yt-dlp's Python library would be refused on Macs with Gatekeeper on (PYI "library load disallowed").
+  annotate error "Files written by programs the app starts are quarantined" "$REPORT"
+  STATUS=1
+elif [ -s "$REPORT" ] && grep -q "^ytdlp-status=0" "$REPORT" && grep -q "^deno-status=0" "$REPORT"; then
   annotate notice "Video tools run from inside the app" "$REPORT"
 else
   [ -s "$REPORT" ] || echo "no report written within 180 s" > "$REPORT"
