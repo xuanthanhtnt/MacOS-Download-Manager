@@ -1,5 +1,10 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.0.1
+- Sửa lỗi treo (con trỏ xoay tròn) ngay sau khi mở ứng dụng.
+- Cho phép tải link `http://` thường (trước đây macOS chặn).
+- Bộ giới hạn tốc độ hoạt động chính xác hơn; tự giảm số kết nối khi máy chủ giới hạn.
+
 **Cài đặt:** mở file `.dmg`, kéo MacOS Download Manager vào Applications, sau đó chạy một lần trong Terminal:
 
 ```bash
