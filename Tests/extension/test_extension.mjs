@@ -192,20 +192,27 @@ try {
     const w = await worker.worker();
     await Promise.race([w.evaluate(() => ping()), sleep(5000)]);
   } catch (e) { /* the worker may already be reloading */ }
-  // Seen from outside: after the reload, requests carry the new version (button click on a fresh page).
+  // Read the loaded version from an extension page (more reliable than evaluating in the worker).
+  const extId = new URL(worker.url()).host;
+  let seen = "";
   let reloaded = false;
-  for (let i = 0; i < 10 && !reloaded; i++) {
-    await sleep(2000);
+  for (let i = 0; i < 12 && !reloaded; i++) {
+    await sleep(1500);
     const p = await browser.newPage();
     try {
-      await p.goto(`${SERVER}/watch?v=reload${i}`);
-      const b = await p.waitForSelector("#mdm-download-video", { timeout: 4000 }).catch(() => null);
-      if (b) { await b.click(); await sleep(1500); }
-    } catch (e) { /* page closed during the reload */ }
+      await p.goto(`chrome-extension://${extId}/popup.html`, { timeout: 5000 });
+      seen = await p.evaluate(async () => {
+        const disk = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" }).then((r) => r.json()).then((j) => j.version, (e) => "fetch failed: " + e);
+        return `loaded=${chrome.runtime.getManifest().version} disk=${disk}`;
+      });
+    } catch (e) {
+      seen = "page: " + String(e.message || e).slice(0, 80);
+    }
     await p.close().catch(() => {});
-    reloaded = requestPaths.some((r) => r.includes(`ext=${newVersion}`));
+    reloaded = seen.startsWith(`loaded=${newVersion}`);
   }
-  check(reloaded, `extension reloaded itself after an update on disk (last request: ${requestPaths[requestPaths.length - 1]})`);
+  const workers = browser.targets().filter((t) => t.type() === "service_worker").map((t) => t.url().split("/").pop());
+  check(reloaded, `extension reloaded itself after an update on disk (${seen}; workers: ${JSON.stringify(workers)}; last request: ${requestPaths[requestPaths.length - 1]})`);
 } catch (e) {
   failures++;
   console.log(`::error::Extension test crashed: ${e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e}`);
