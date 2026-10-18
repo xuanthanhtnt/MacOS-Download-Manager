@@ -364,7 +364,8 @@ enum MediaMuxer {
         }
         export.outputURL = output
         export.outputFileType = .mp4
-        export.shouldOptimizeForNetworkUse = true
+        // Moving the index to the front needs a second copy of the file: not worth it for local files.
+        export.shouldOptimizeForNetworkUse = false
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             export.exportAsynchronously { continuation.resume() }
         }

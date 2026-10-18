@@ -28,16 +28,20 @@ struct ProgressWindowView: View {
 private struct InfoRow: View {
     let label: LocalizedStringKey
     let value: String
+    /// Error messages are shown in full (several lines), everything else on one line.
+    var multiline = false
 
     var body: some View {
-        GridRow {
+        GridRow(alignment: .firstTextBaseline) {
             Text(label)
                 .foregroundStyle(.secondary)
                 .gridColumnAlignment(.trailing)
             Text(verbatim: value)
-                .lineLimit(1)
+                .lineLimit(multiline ? 12 : 1)
                 .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: multiline)
                 .textSelection(.enabled)
+                .foregroundStyle(multiline ? Color.red : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -73,7 +77,7 @@ struct DownloadProgressView: View {
         VStack(alignment: .leading, spacing: 14) {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                 InfoRow(label: "URL", value: item.url.absoluteString)
-                InfoRow(label: "Status", value: statusText)
+                InfoRow(label: "Status", value: statusText, multiline: item.status == .failed && item.errorMessage != nil)
                 InfoRow(label: "File size", value: item.totalBytes > 0 ? Fmt.bytes(item.totalBytes) : String(localized: "Unknown"))
                 InfoRow(label: "Downloaded", value: downloadedText)
                 InfoRow(label: "Transfer rate", value: Fmt.speed(stats?.speed ?? 0))

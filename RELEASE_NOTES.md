@@ -1,5 +1,10 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.5
+- Khi ghép hình và tiếng thất bại, cửa sổ tiến trình **hiện đầy đủ lý do** (lỗi của ffmpeg và của macOS, định dạng và dung lượng từng phần) thay vì chỉ dòng đầu; lỗi cũng được ghi vào `~/Library/Logs/MacOS Download Manager/video.log`.
+- Kiểm tra **dung lượng trống** trước khi ghép và báo rõ nếu ổ đĩa không đủ chỗ.
+- macOS ghép không cần bản sao tạm thứ hai (bỏ “tối ưu cho mạng”).
+
 ### Có gì mới ở 1.1.4
 - Sửa lỗi video **1080p tải xong nhưng không ghép được** hình và tiếng: app ghép bằng ffmpeg trước (cách yt-dlp dùng cho YouTube), macOS chỉ là phương án dự phòng và nay dùng đúng khoảng thời gian của từng luồng; nếu vẫn lỗi, thông báo ghi rõ lỗi của cả hai.
 - Nhận đúng luồng tiếng HLS mà yt-dlp không ghi tên codec (trước đây bị bỏ qua).

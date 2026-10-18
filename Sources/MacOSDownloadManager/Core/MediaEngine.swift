@@ -391,6 +391,17 @@ final class MediaDownloadEngine: DownloadEngine {
             return
         }
 
+        // The joined file is as big as the streams together: check the disk has room for it.
+        let needed = paths.reduce(Int64(0)) { $0 + fileSize($1) }
+        let folder = output.deletingLastPathComponent()
+        if let free = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
+           free < needed + 100 * 1024 * 1024 {
+            let message = String(format: String(localized: "Not enough free disk space to join video and audio: %@ needed, %@ free. Free up space, then click Resume."),
+                                 Fmt.bytes(needed + 100 * 1024 * 1024), Fmt.bytes(free))
+            log("\(output.lastPathComponent): \(message)")
+            throw MediaError.message(message)
+        }
+
         var problems: [String] = []
         var joined = false
         if let ffmpeg = await MediaTools.shared.ensureFFmpeg() {
@@ -413,11 +424,33 @@ final class MediaDownloadEngine: DownloadEngine {
         }
         guard joined else {
             let kinds = zip(["video", "audio"], containers).map { "\($0)=\($1)" }.joined(separator: ", ")
-            throw MediaError.message(String(localized: "Could not join video and audio") + " (\(kinds))\n" + problems.joined(separator: "\n"))
+            let sizes = paths.map { Fmt.bytes(fileSize($0)) }.joined(separator: " + ")
+            log("\(output.lastPathComponent): join failed (\(kinds); \(sizes))\n  " + problems.joined(separator: "\n  "))
+            // The causes first: the status line shows the beginning of the message.
+            throw MediaError.message(problems.joined(separator: "\n") + "\n" + String(localized: "Could not join video and audio") + " (\(kinds); \(sizes))")
         }
         try? fm.removeItem(at: output)
         try fm.moveItem(at: temp, to: output)
         for p in paths { try? fm.removeItem(at: p) }
+    }
+
+    private static func fileSize(_ url: URL) -> Int64 {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.int64Value ?? 0
+    }
+
+    /// Video join problems are kept in ~/Library/Logs/MacOS Download Manager/video.log (for bug reports).
+    static func log(_ text: String) {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/MacOS Download Manager", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("video.log")
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(text)\n"
+        if let handle = try? FileHandle(forWritingTo: file) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? Data(line.utf8).write(to: file)
+        }
     }
 
     // MARK: Progress

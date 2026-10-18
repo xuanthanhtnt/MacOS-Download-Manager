@@ -387,4 +387,5 @@ VI = {
 'This video was saved as MPEG-TS, which needs ffmpeg to become MP4. ffmpeg could not be downloaded: try again.': 'Video này được lưu dạng MPEG-TS, cần ffmpeg để chuyển thành MP4. Không tải được ffmpeg: hãy thử lại.',
 'These streams need ffmpeg to be joined, and it could not be downloaded. Check the connection and click Resume.': 'Cần ffmpeg để ghép các luồng này nhưng không tải được ffmpeg. Hãy kiểm tra kết nối rồi bấm Tải tiếp.',
 'could not be downloaded': 'không tải được',
+'Not enough free disk space to join video and audio: %@ needed, %@ free. Free up space, then click Resume.': 'Ổ đĩa không đủ chỗ trống để ghép hình và tiếng: cần %@, còn trống %@. Hãy giải phóng bớt dung lượng rồi bấm Tải tiếp.',
 }
