@@ -28,7 +28,7 @@ struct DownloadTableView: View {
     }
 
     var body: some View {
-        Table(sorted, selection: $selection, sortOrder: $sortOrder) {
+        Table(sorted, selection: $selection.distinct(), sortOrder: $sortOrder.distinct()) {
             TableColumn("File Name", value: \.fileName) { item in
                 FileNameCell(item: item)
             }

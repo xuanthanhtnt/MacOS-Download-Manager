@@ -219,7 +219,7 @@ struct SidebarView: View {
     @Binding var selection: SidebarItem?
 
     var body: some View {
-        List(selection: $selection) {
+        List(selection: $selection.distinct()) {
             Section("Categories") {
                 row("All Downloads", icon: "tray.full", count: manager.items.count)
                     .tag(SidebarItem.all)
@@ -407,5 +407,14 @@ enum DeleteConfirmation {
         default:
             break
         }
+    }
+}
+
+extension Binding where Value: Equatable {
+    /// A binding that ignores writes of the value it already holds.
+    func distinct() -> Binding<Value> {
+        Binding(get: { wrappedValue }, set: { newValue in
+            if newValue != wrappedValue { wrappedValue = newValue }
+        })
     }
 }

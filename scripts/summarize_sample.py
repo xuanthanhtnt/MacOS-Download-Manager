@@ -61,6 +61,23 @@ def main():
         sys.exit(1 if idle else 0)
 
     print(f"main thread samples: {total}")
+    # Frames from the app's own module (any count): shows which views/closures take part.
+    own = {}
+    for l in lines[1:]:
+        if "(MacOSDownloadManager)" in l:
+            frame = clean(l).lstrip(" +!:|0123456789")
+            own[frame] = max(own.get(frame, 0), count_of(l))
+    if own:
+        print("app frames:")
+        for frame, c in sorted(own.items(), key=lambda kv: -kv[1])[:25]:
+            print(f"  {c:5d}  {frame[:180]}")
+    # SwiftUI action/closure frames right below Update.Action (what triggers the loop)
+    for i, l in enumerate(lines):
+        if "Update.Action.callAsFunction" in l:
+            print("below Update.Action:")
+            for nxt in lines[i + 1:i + 14]:
+                print("  " + clean(nxt).strip()[:200])
+            break
     # keep the first frames (app entry) and the deepest frames
     shown = hot[:12] + (["  ..."] if len(hot) > 52 else []) + (hot[-40:] if len(hot) > 52 else hot[12:])
     for l in shown:

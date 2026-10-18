@@ -114,7 +114,7 @@ final class DownloadManager: ObservableObject {
         }
 
         applySettings(settings.data)
-        settings.$data
+        settings.changes
             .receive(on: DispatchQueue.main)
             .sink { [weak self] data in self?.applySettings(data) }
             .store(in: &cancellables)

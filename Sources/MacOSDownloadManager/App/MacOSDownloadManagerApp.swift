@@ -9,7 +9,8 @@ struct MacOSDownloadManagerApp: App {
     @StateObject private var manager = DownloadManager.shared
 
     var body: some Scene {
-        MenuBarExtra(isInserted: $settings.data.showMenuBarIcon) {
+        MenuBarExtra(isInserted: Binding(get: { settings.data.showMenuBarIcon },
+                                         set: { settings.data.showMenuBarIcon = $0 })) {
             MenuBarView()
                 .environmentObject(manager)
                 .environmentObject(settings)

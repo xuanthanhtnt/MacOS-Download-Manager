@@ -154,14 +154,28 @@ final class SettingsStore: ObservableObject {
 
     private static let key = "MDM.settings.v1"
 
-    @Published var data: AppSettingsData {
-        didSet {
-            if data != oldValue { save() }
+    private var storage: AppSettingsData
+
+    /// Emits the new settings after every real change (and the current value on subscription).
+    let changes: CurrentValueSubject<AppSettingsData, Never>
+
+    /// Writing the same value again is ignored, so SwiftUI bindings that re-assign values
+    /// during view updates cannot trigger endless update cycles.
+    var data: AppSettingsData {
+        get { storage }
+        set {
+            guard newValue != storage else { return }
+            objectWillChange.send()
+            storage = newValue
+            save()
+            changes.send(newValue)
         }
     }
 
     private init() {
-        data = SettingsStore.load()
+        let loaded = SettingsStore.load()
+        storage = loaded
+        changes = CurrentValueSubject(loaded)
         applyLanguage()
     }
 
