@@ -1,5 +1,9 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.2
+- Sửa lỗi tải video báo **“[PYI-…] Failed to load Python shared library … library load disallowed by system policy”**: app không còn bật chế độ cách ly (quarantine) cho mọi tệp nó tạo ra — chế độ này bị macOS truyền sang yt-dlp và chặn thư viện Python của nó. Tệp tải xong vẫn được gắn dấu “tải từ Internet” như trình duyệt, nên macOS vẫn kiểm tra ứng dụng tải về trước khi mở.
+- Mỗi bản build tự kiểm tra: mở app như người dùng, cài yt-dlp + Deno và chạy chúng từ bên trong app.
+
 ### Có gì mới ở 1.1.1
 - Nút **“⬇ Download video”** trên YouTube hiện cả ở các tab YouTube đang mở sẵn khi cài/cập nhật tiện ích (không cần tải lại trang), và không dùng `innerHTML` (an toàn với chính sách Trusted Types của YouTube).
 - App biết phiên bản tiện ích đang kết nối: **cảnh báo “Tiện ích trình duyệt đã cũ”** ở thanh trạng thái và trong Tùy chọn → Trình duyệt; popup tiện ích hiện số phiên bản.

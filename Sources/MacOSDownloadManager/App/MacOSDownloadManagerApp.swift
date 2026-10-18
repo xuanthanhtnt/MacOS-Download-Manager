@@ -36,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         DownloadManager.shared.bootstrap()
         WindowManager.shared.showMain()
+        if let target = ProcessInfo.processInfo.environment["MDM_SELFTEST_YTDLP"], !target.isEmpty {
+            SelfTest.runVideoTools(reportTo: target)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -173,6 +176,30 @@ enum ImportExport {
         if panel.runModal() == .OK, let url = panel.url {
             let manager = DownloadManager.shared
             manager.export(manager.items, to: url, ef2: ef2)
+        }
+    }
+}
+
+/// CI check: installs the video tools and runs yt-dlp from inside the real app, the way users do,
+/// then writes the result to a file and quits. Enabled only by the MDM_SELFTEST_YTDLP variable.
+enum SelfTest {
+    static func runVideoTools(reportTo path: String) {
+        Task.detached {
+            var report = ""
+            do {
+                if !MediaTools.shared.isInstalled {
+                    try await MediaTools.shared.install()
+                }
+                let yt = try await MediaTools.runProcess(MediaTools.shared.ytdlpPath, ["--version"], timeout: 120)
+                let deno = try await MediaTools.runProcess(MediaTools.shared.denoPath, ["--version"], timeout: 60)
+                report = "ytdlp-status=\(yt.status)\nytdlp=\(yt.stdout.trimmingCharacters(in: .whitespacesAndNewlines))\n"
+                    + "ytdlp-error=\(yt.stderrTail)\ndeno-status=\(deno.status)\n"
+                    + "deno=\(deno.stdout.split(separator: "\n").first ?? "")\n"
+            } catch {
+                report = "error=\(error.localizedDescription)\n"
+            }
+            try? report.write(toFile: path, atomically: true, encoding: .utf8)
+            await MainActor.run { NSApp.terminate(nil) }
         }
     }
 }

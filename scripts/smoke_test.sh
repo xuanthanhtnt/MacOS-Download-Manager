@@ -88,4 +88,25 @@ tail -40 smoke.log > smoke-tail.txt
 kill "$PID" 2>/dev/null
 sleep 1
 kill -9 "$PID" 2>/dev/null
+sleep 1
+
+# Video tools started from inside the app, launched the way users launch it (Finder / LaunchServices):
+# the app installs yt-dlp + Deno and runs them. Catches system-policy problems that only happen
+# for programs started by the app (e.g. quarantine inherited by child processes).
+REPORT="${RUNNER_TEMP:-/tmp}/mdm-selftest.txt"
+rm -f "$REPORT"
+if ! open --env "MDM_SELFTEST_YTDLP=$REPORT" "$APP" 2>/dev/null; then
+  MDM_SELFTEST_YTDLP="$REPORT" "$BIN" > selftest.log 2>&1 &
+fi
+for i in $(seq 1 180); do [ -s "$REPORT" ] && break; sleep 1; done
+echo "--- video tools self-test ---"
+cat "$REPORT" 2>/dev/null || echo "(no report)"
+if [ -s "$REPORT" ] && grep -q "^ytdlp-status=0" "$REPORT" && grep -q "^deno-status=0" "$REPORT"; then
+  annotate notice "Video tools run from inside the app" "$REPORT"
+else
+  [ -s "$REPORT" ] || echo "no report written within 180 s" > "$REPORT"
+  annotate error "Video tools failed when started by the app" "$REPORT"
+  STATUS=1
+fi
+pkill -x MacOSDownloadManager 2>/dev/null
 exit $STATUS

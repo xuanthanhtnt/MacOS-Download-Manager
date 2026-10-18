@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CoreServices
 import Combine
 
 /// Owns the download list, the queues and the running engines. All methods must be called on the main thread.
@@ -536,6 +537,7 @@ final class DownloadManager: ObservableObject {
         }
         try? fm.removeItem(atPath: temp + ".parts")
         let size = (try? fm.attributesOfItem(atPath: destination)[.size] as? NSNumber)?.int64Value ?? item.downloadedBytes
+        DownloadManager.markAsDownloaded(destination, from: item.url, referer: item.referer)
         item.fileName = (destination as NSString).lastPathComponent
         item.tempPath = nil
         item.segments = []
@@ -597,6 +599,24 @@ final class DownloadManager: ObservableObject {
         saveNow()
         updateActivity()
         processQueues()
+    }
+
+    /// Marks a finished file as downloaded from the Internet (like Safari/Chrome do), so macOS checks
+    /// downloaded apps and shows "downloaded from …" before opening them. Only the finished file is marked:
+    /// helper tools started by the app (yt-dlp) must be able to load their own libraries.
+    static func markAsDownloaded(_ path: String, from url: URL, referer: String?) {
+        var properties: [String: Any] = [
+            kLSQuarantineAgentNameKey as String: "MacOS Download Manager",
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+            kLSQuarantineDataURLKey as String: url
+        ]
+        if let referer, let origin = URL(string: referer) {
+            properties[kLSQuarantineOriginURLKey as String] = origin
+        }
+        var fileURL = URL(fileURLWithPath: path)
+        var values = URLResourceValues()
+        values.quarantineProperties = properties
+        try? fileURL.setResourceValues(values)
     }
 
     /// Removes an unfinished download's data: the temp file, HLS parts and video/audio stream files.
