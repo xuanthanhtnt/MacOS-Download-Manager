@@ -34,22 +34,31 @@ jobs:
         continue-on-error: true
         run: |
           cd f
-          for fmt in 140 160 133 134; do
-            ../ytdlp --no-warnings --js-runtimes deno -f $fmt -o "yt_$fmt.%(ext)s" "https://www.youtube.com/watch?v=jNQXAC9IVRw" > yt_$fmt.log 2>&1
-            echo "$fmt: $(tail -1 yt_$fmt.log)" >> ../ytlog.txt
+          for v in dMwX6nGufOw jNQXAC9IVRw; do
+            for t in 1 2 3; do
+              ../ytdlp --no-warnings --js-runtimes deno -J "https://www.youtube.com/watch?v=$v" > $v.json 2> $v.err && break
+              sleep 5
+            done
+            if [ -s $v.json ]; then python3 ../diag/formats.py $v.json choice_$v.txt > fmt_$v.txt; else tail -2 $v.err > fmt_$v.txt; fi
+            echo "::notice title=Formats $v::$(perl -pe 's/\n/%0A/' fmt_$v.txt)"
           done
-          echo "::notice title=yt-dlp::$(perl -pe 's/\n/%0A/' ../ytlog.txt)"
-          ls -la yt_* || true
+          if [ -s choice_jNQXAC9IVRw.txt ]; then
+            read V A < choice_jNQXAC9IVRw.txt
+            ../ytdlp --no-warnings --js-runtimes deno --ffmpeg-location /nonexistent -f "$V" -o "yt_v.%(ext)s" "https://www.youtube.com/watch?v=jNQXAC9IVRw" > dl.log 2>&1 || true
+            ../ytdlp --no-warnings --js-runtimes deno --ffmpeg-location /nonexistent -f "$A" -o "yt_a.%(ext)s" "https://www.youtube.com/watch?v=jNQXAC9IVRw" >> dl.log 2>&1 || true
+            ls -la yt_* >> dl.log 2>&1 || true
+            for x in yt_v.* yt_a.*; do [ -f "$x" ] && echo "$x first bytes: $(xxd -l 12 -p "$x")" >> dl.log; done
+            echo "::notice title=App choice download ($V + $A)::$(perl -pe 's/\n/%0A/' dl.log)"
+          fi
+          true
       - name: Probe
         run: |
           cd f
           swiftc -O ../diag/probe.swift -o probe
           python3 ../diag/boxes.py $(ls yt_*.mp4 yt_*.m4a 2>/dev/null) > ../boxes.txt || true
-          ./probe $(ls *.mp4 *.m4a) > ../probe.txt 2>&1
-          ./probe merge frag_v.mp4 frag_a.m4a m1.mp4 >> ../probe.txt 2>&1
-          [ -f dash_v.mp4 ] && ./probe merge dash_v.mp4 dash_a.m4a m2.mp4 >> ../probe.txt 2>&1
-          [ -f brand_dash_v.mp4 ] && ./probe merge brand_dash_v.mp4 brand_dash_a.m4a m3.mp4 >> ../probe.txt 2>&1
-          V=$(ls yt_160.mp4 yt_133.mp4 yt_134.mp4 2>/dev/null | head -1); A=$(ls yt_140.m4a 2>/dev/null | head -1)
+          ./probe frag_v.mp4 dash_a.m4a > ../probe.txt 2>&1
+          V=$(ls yt_v.* 2>/dev/null | head -1); A=$(ls yt_a.* 2>/dev/null | head -1)
+          [ -n "$V" ] && ./probe "$V" "$A" >> ../probe.txt 2>&1
           [ -n "$V" ] && [ -n "$A" ] && ./probe merge "$V" "$A" m4.mp4 >> ../probe.txt 2>&1
           echo "::notice title=AVFoundation::$(perl -pe 's/\n/%0A/' ../probe.txt)"
           echo "::notice title=YouTube boxes::$(perl -pe 's/\n/%0A/' ../boxes.txt)"
