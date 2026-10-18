@@ -41,7 +41,7 @@ jobs:
               sleep 5
             done
             if [ -s $v.json ]; then python3 ../diag/formats.py $v.json choice_$v.txt > fmt_$v.txt; else tail -2 $v.err > fmt_$v.txt; fi
-            echo "::notice title=Formats $v::$(perl -pe 's/\n/%0A/' fmt_$v.txt)"
+            python3 ../diag/annotate.py "Formats $v" fmt_$v.txt
           done
           if [ -s choice_jNQXAC9IVRw.txt ]; then
             read V A < choice_jNQXAC9IVRw.txt
@@ -49,7 +49,7 @@ jobs:
             ../ytdlp --no-warnings --js-runtimes deno --ffmpeg-location /nonexistent -f "$A" -o "yt_a.%(ext)s" "https://www.youtube.com/watch?v=jNQXAC9IVRw" >> dl.log 2>&1 || true
             ls -la yt_* >> dl.log 2>&1 || true
             for x in yt_v.* yt_a.*; do [ -f "$x" ] && echo "$x first bytes: $(xxd -l 12 -p "$x")" >> dl.log; done
-            echo "::notice title=App choice download ($V + $A)::$(perl -pe 's/\n/%0A/' dl.log)"
+            python3 ../diag/annotate.py "Download $V+$A" dl.log
           fi
           true
       - name: Probe
@@ -61,6 +61,6 @@ jobs:
           V=$(ls yt_v.* 2>/dev/null | head -1); A=$(ls yt_a.* 2>/dev/null | head -1)
           [ -n "$V" ] && ./probe "$V" "$A" >> ../probe.txt 2>&1
           [ -n "$V" ] && [ -n "$A" ] && ./probe merge "$V" "$A" m4.mp4 >> ../probe.txt 2>&1
-          echo "::notice title=AVFoundation::$(perl -pe 's/\n/%0A/' ../probe.txt)"
-          echo "::notice title=YouTube boxes::$(perl -pe 's/\n/%0A/' ../boxes.txt)"
+          python3 ../diag/annotate.py AVFoundation ../probe.txt
+          python3 ../diag/annotate.py Boxes ../boxes.txt
           true
