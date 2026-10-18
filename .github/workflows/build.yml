@@ -25,8 +25,20 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Unit tests
-        run: swift test
+      - name: Unit & integration tests
+        run: |
+          FIXTURES="$RUNNER_TEMP/mdm-fixtures"
+          ./scripts/test_fixtures.sh "$FIXTURES"
+          python3 scripts/test_server.py "$FIXTURES" 8765 &
+          SERVER_PID=$!
+          sleep 1
+          export MDM_TEST_SERVER="http://127.0.0.1:8765"
+          export MDM_TEST_FIXTURES="$FIXTURES"
+          swift test 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          kill $SERVER_PID || true
+          grep -E "Test Case .*(passed|failed|skipped)|error:" test.log | tail -40
+          exit $status
 
       - name: Build MacOS Download Manager.app and DMG
         run: |

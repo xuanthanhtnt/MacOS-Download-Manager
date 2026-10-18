@@ -339,14 +339,15 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
             return
         }
 
-        if n > config.retries {
+        if serverBusy && !connections.isEmpty {
+            // The server limits the number of connections: use fewer of them. This is not a real
+            // failure of the part (other connections are making progress), so it is not counted.
+            effectiveMax = max(1, min(effectiveMax, connections.count))
+            failures[c.segmentID] = n - 1
+        } else if n > config.retries {
             // Give up on this part for now; the others continue.
             fillConnections()
             return
-        }
-        if serverBusy && !connections.isEmpty {
-            // The server limits the number of connections: use fewer of them.
-            effectiveMax = max(1, min(effectiveMax, connections.count))
         }
         let delay = min(Double(n) * 2, 15)
         let failedID = c.segmentID
