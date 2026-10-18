@@ -1,5 +1,12 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.3
+- Sửa lỗi tải video YouTube xong nhưng **ghép không được (“Cannot Open”) và hai tệp tải về không mở được**: yt-dlp bản mới liệt kê thêm các luồng HLS của YouTube (bitrate cao hơn) và app đã chọn chúng; không có ffmpeg, yt-dlp lưu chúng dạng MPEG-TS trong tệp .mp4 mà macOS không mở được. Nay app ưu tiên luồng MP4 thường của YouTube (tải đa kết nối, macOS tự ghép), chỉ dùng HLS khi không còn lựa chọn khác.
+- **ffmpeg được tải tự động** (một lần, bản dựng có chữ ký từ ffmpeg.martin-riedl.de, kiểm tra SHA-256 và chữ ký) cùng yt-dlp và Deno: ghép những luồng macOS không ghép được, chuyển HLS/MPEG-TS sang MP4, và mở thêm chất lượng 1440p/4K (VP9/AV1).
+- Trước khi ghép, app kiểm tra định dạng thật của từng tệp; nếu macOS từ chối thì tự chuyển sang ffmpeg.
+- **Lượt tải bị lỗi ghép chỉ cần bấm “Resume”**: app ghép lại các phần đã tải, không tải lại.
+- Chất lượng chọn sẵn luôn là H.264 (phát được bằng QuickTime trên mọi máy Mac), trừ khi bạn đặt chất lượng tối đa trên 1080p.
+
 ### Có gì mới ở 1.1.2
 - Sửa lỗi tải video báo **“[PYI-…] Failed to load Python shared library … library load disallowed by system policy”**: app không còn bật chế độ cách ly (quarantine) cho mọi tệp nó tạo ra — chế độ này bị macOS truyền sang yt-dlp và chặn thư viện Python của nó. Tệp tải xong vẫn được gắn dấu “tải từ Internet” như trình duyệt, nên macOS vẫn kiểm tra ứng dụng tải về trước khi mở.
 - Mỗi bản build tự kiểm tra: mở app như người dùng, cài yt-dlp + Deno và chạy chúng từ bên trong app.

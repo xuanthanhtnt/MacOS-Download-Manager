@@ -551,13 +551,16 @@ private struct VideoOptions: View {
                         .foregroundStyle(tools.denoVersion == nil ? Color.orange : Color.secondary)
                 }
                 LabeledContent("FFmpeg") {
-                    Text(verbatim: tools.ffmpegPath ?? String(localized: "Not found (optional: brew install ffmpeg)"))
-                        .foregroundStyle(.secondary)
+                    Text(verbatim: ffmpegText)
+                        .foregroundStyle(tools.ffmpegPath == nil ? Color.orange : Color.secondary)
                 }
                 HStack {
                     if tools.installing {
                         ProgressView().controlSize(.small)
                         Text(verbatim: tools.installStatus).foregroundStyle(.secondary)
+                    } else if tools.isInstalled && tools.ffmpegPath == nil {
+                        Button("Download Missing Components") { Task { try? await tools.installMissing() } }
+                            .buttonStyle(.borderedProminent)
                     } else if tools.isInstalled {
                         Button("Update yt-dlp") { Task { try? await tools.updateYtdlp() } }
                         Button("Download Components Again") { Task { try? await tools.install() } }
@@ -572,7 +575,7 @@ private struct VideoOptions: View {
             } header: {
                 Text("Components")
             } footer: {
-                Text("yt-dlp reads video pages (YouTube and many other sites) and Deno is the JavaScript runtime it needs for YouTube. Both are free, open source and downloaded from their official GitHub releases. Update yt-dlp when a site stops working.")
+                Text("yt-dlp reads video pages (YouTube and many other sites), Deno is the JavaScript runtime it needs for YouTube, and ffmpeg joins video and audio streams that macOS cannot join itself. All are free and open source: yt-dlp and Deno come from their official GitHub releases, ffmpeg from the signed macOS builds at ffmpeg.martin-riedl.de. Update yt-dlp when a site stops working.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -594,6 +597,13 @@ private struct VideoOptions: View {
         }
         .formStyle(.grouped)
         .onAppear { tools.refreshStatus() }
+    }
+
+    private var ffmpegText: String {
+        guard let path = tools.ffmpegPath else { return String(localized: "Not installed") }
+        let version = tools.ffmpegVersion ?? ""
+        if path == tools.ffmpegToolPath { return version.isEmpty ? String(localized: "Installed") : version }
+        return version.isEmpty ? path : "\(version) (\(path))"
     }
 }
 

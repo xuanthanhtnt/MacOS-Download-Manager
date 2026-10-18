@@ -32,8 +32,7 @@ final class MediaTests: XCTestCase {
         XCTAssertTrue(specs.contains("136+140"))
         XCTAssertFalse(specs.contains { $0.hasPrefix("400") }, "AV1 needs ffmpeg")
         XCTAssertTrue(specs.contains("18"), "file with picture and sound")
-        XCTAssertTrue(specs.contains("hls-1"))
-        XCTAssertEqual(options.first { $0.spec == "hls-1" }?.direct, false, "HLS is downloaded by yt-dlp")
+        XCTAssertFalse(specs.contains("hls-1"), "HLS becomes MPEG-TS without ffmpeg, which macOS cannot open")
         XCTAssertEqual(options.last?.spec, "140", "audio only (AAC) last")
         XCTAssertEqual(options.first?.merge, .avfoundation)
         XCTAssertEqual(options.first?.ext, "mp4")
@@ -49,8 +48,63 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(av1.spec, "400+140")
         XCTAssertEqual(av1.merge, .ffmpeg)
         XCTAssertEqual(av1.ext, "mp4")
+        XCTAssertFalse(av1.compatible)
         // H.264 is still preferred where it exists (plays everywhere, joined by macOS).
         XCTAssertEqual(options.first { $0.height == 720 }?.spec, "136+140")
+        XCTAssertEqual(options.first { $0.height == 720 }?.merge, .avfoundation)
+        // The preselected quality plays in QuickTime unless a quality above 1080p is asked for.
+        XCTAssertEqual(MediaPlanner.preferred(options, maxHeight: 0)?.spec, "299+140")
+        XCTAssertEqual(MediaPlanner.preferred(options, maxHeight: 1440)?.spec, "400+140")
+        // With ffmpeg, HLS is usable (yt-dlp turns it into MP4); ffmpeg does the joining.
+        let hls = try XCTUnwrap(options.first { $0.spec == "hls-1" })
+        XCTAssertEqual(hls.direct, false, "HLS is downloaded by yt-dlp")
+    }
+
+    /// yt-dlp 2026 also lists YouTube's HLS streams (visionOS client). They have a higher bitrate than the
+    /// normal MP4 streams, but are saved as MPEG-TS: version 1.1.2 picked them and macOS could not join them.
+    func testYouTubeHLSStreamsAreNotPreferred() throws {
+        let json = """
+        {"id":"y","title":"Concert","duration":5400,"formats":[
+          {"format_id":"234","ext":"mp4","protocol":"m3u8_native","url":"https://m/234.m3u8","vcodec":"none","acodec":"mp4a.40.2","tbr":192},
+          {"format_id":"140","ext":"m4a","protocol":"https","url":"https://a/140","vcodec":"none","acodec":"mp4a.40.2","abr":129.5,"filesize":87000000,"container":"m4a_dash"},
+          {"format_id":"229","ext":"mp4","protocol":"m3u8_native","url":"https://m/229.m3u8","vcodec":"avc1.4D400D","acodec":"none","height":240,"tbr":350},
+          {"format_id":"270","ext":"mp4","protocol":"m3u8_native","url":"https://m/270.m3u8","vcodec":"avc1.640028","acodec":"none","height":1080,"tbr":4400},
+          {"format_id":"137","ext":"mp4","protocol":"https","url":"https://a/137","vcodec":"avc1.640028","acodec":"none","height":1080,"tbr":2600,"filesize":1500000000,"container":"mp4_dash"}
+        ]}
+        """
+        let info = try JSONDecoder().decode(YTDLInfo.self, from: Data(json.utf8))
+        for ffmpeg in [false, true] {
+            let options = MediaPlanner.options(for: info, ffmpeg: ffmpeg)
+            let hd = try XCTUnwrap(options.first { $0.height == 1080 })
+            XCTAssertEqual(hd.spec, "137+140", "normal MP4 streams win over HLS (ffmpeg: \(ffmpeg))")
+            XCTAssertEqual(hd.merge, .avfoundation)
+            XCTAssertTrue(hd.direct)
+            XCTAssertEqual(MediaPlanner.preferred(options, maxHeight: 0)?.spec, "137+140")
+            let low = options.first { $0.height == 240 }
+            if ffmpeg {
+                XCTAssertEqual(low?.spec, "229+140", "HLS only where nothing else exists")
+                XCTAssertEqual(low?.merge, .ffmpeg)
+            } else {
+                XCTAssertNil(low, "HLS is not offered without ffmpeg")
+            }
+        }
+    }
+
+    func testSniffContainers() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mdm-sniff-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func file(_ name: String, _ bytes: [UInt8]) throws -> URL {
+            let url = dir.appendingPathComponent(name)
+            try Data(bytes).write(to: url)
+            return url
+        }
+        var ts = [UInt8](repeating: 0xFF, count: 188 * 3)
+        ts[0] = 0x47; ts[188] = 0x47; ts[376] = 0x47
+        XCTAssertEqual(MediaMuxer.sniff(try file("ts.mp4", ts)), .mpegTS)
+        XCTAssertEqual(MediaMuxer.sniff(try file("a.mp4", [0, 0, 0, 0x18] + Array("ftypdash".utf8) + [UInt8](repeating: 0, count: 16))), .mp4)
+        XCTAssertEqual(MediaMuxer.sniff(try file("b.webm", [0x1A, 0x45, 0xDF, 0xA3, 1, 2, 3, 4])), .matroska)
+        XCTAssertEqual(MediaMuxer.sniff(try file("c.bin", Array("<html>hello</html>".utf8))), .unknown)
     }
 
     func testSingleFileSite() throws {
@@ -268,6 +322,76 @@ final class MediaTests: XCTestCase {
 
     // MARK: Real tools and YouTube (CI only; YouTube may refuse data-center addresses)
 
+    /// The case from version 1.1.2: an HLS video stream saved as MPEG-TS in a .mp4 file plus an M4A
+    /// audio stream. macOS refuses the TS file ("Cannot Open"); on Resume the engine joins the parts
+    /// already downloaded with ffmpeg, without reading the page or downloading again.
+    func testResumeJoinsMPEGTSPartsWithFFmpeg() async throws {
+        guard ProcessInfo.processInfo.environment["MDM_NETWORK_TESTS"] == "1" else {
+            throw XCTSkip("Network tests are disabled")
+        }
+        let maybeFFmpeg = await MediaTools.shared.ensureFFmpeg()
+        let ffmpeg = try XCTUnwrap(maybeFFmpeg, "ffmpeg must download: \(MediaTools.shared.lastError ?? "")")
+        let version = try await MediaTools.runProcess(ffmpeg, ["-hide_banner", "-version"]).stdout
+        print("MDM-NOTE \(version.split(separator: "\n").first ?? "") at \(ffmpeg)")
+
+        let workDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("mdm-ts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: workDir) }
+        let source = URL(fileURLWithPath: workDir).appendingPathComponent("source.mp4")
+        try Self.makeVideo(source, seconds: 3)
+        let temp = (workDir as NSString).appendingPathComponent("Concert.mp4.mdmpart")
+        let videoPart = URL(fileURLWithPath: temp + ".part0.mp4")
+        let audioPart = URL(fileURLWithPath: temp + ".part1.m4a")
+        let convert = try await MediaTools.runProcess(ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", source.path,
+                                                               "-c", "copy", "-f", "mpegts", videoPart.path])
+        XCTAssertEqual(convert.status, 0, convert.stderrTail)
+        try Self.makeAudio(audioPart, seconds: 3)
+        XCTAssertEqual(MediaMuxer.sniff(videoPart), .mpegTS)
+        XCTAssertEqual(MediaMuxer.sniff(audioPart), .mp4)
+
+        // What 1.1.2 did: macOS cannot open the TS stream.
+        let refused = URL(fileURLWithPath: workDir).appendingPathComponent("refused.mp4")
+        do {
+            try await MediaMuxer.mergeWithAVFoundation(video: videoPart, audio: audioPart, output: refused)
+            print("MDM-NOTE macOS joined an MPEG-TS stream (unexpected)")
+        } catch {
+            print("MDM-NOTE macOS refuses the MPEG-TS stream as in the bug report: \(error.localizedDescription)")
+        }
+
+        var item = DownloadItem(url: URL(string: "https://www.youtube.com/watch?v=dMwX6nGufOw")!, fileName: "Concert.mp4", directory: workDir)
+        item.kind = .media
+        item.mediaFormat = "270+140"
+        item.mediaParts = [MediaPartState(formatID: "270", ext: "mp4", totalBytes: 1, downloadedBytes: 1, done: true),
+                           MediaPartState(formatID: "140", ext: "m4a", totalBytes: 1, downloadedBytes: 1, done: true)]
+        let config = EngineConfig(maxConnections: 4, retries: 1, timeout: 20, headers: [:], credential: nil, proxy: nil)
+        let result: (ext: String?, error: String?) = await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                let engine = MediaDownloadEngine(item: item, tempPath: temp, config: config, cookiesBrowser: "", maxHeight: 0)
+                engine.extractor = { _ in throw MediaError.message("the page must not be read again") }
+                var resumed = false
+                engine.onEvent = { event in
+                    guard !resumed else { return }
+                    switch event {
+                    case .finished(let ext): resumed = true; continuation.resume(returning: (ext, nil)); _ = engine
+                    case .failed(let message): resumed = true; continuation.resume(returning: (nil, message)); _ = engine
+                    default: break
+                    }
+                }
+                engine.start()
+            }
+        }
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.ext, "mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: videoPart.path), "parts are removed after joining")
+        let movie = URL(fileURLWithPath: (workDir as NSString).appendingPathComponent("check.mp4"))
+        try FileManager.default.moveItem(at: URL(fileURLWithPath: temp), to: movie)
+        XCTAssertEqual(MediaMuxer.sniff(movie), .mp4)
+        let counts = try await trackCounts(movie)
+        XCTAssertEqual(counts.video, 1)
+        XCTAssertEqual(counts.audio, 1)
+        XCTAssertEqual(counts.duration, 3, accuracy: 0.5)
+    }
+
     func testInstallToolsAndDownloadFromYouTube() async throws {
         guard ProcessInfo.processInfo.environment["MDM_NETWORK_TESTS"] == "1" else {
             throw XCTSkip("Network tests are disabled")
@@ -317,7 +441,12 @@ final class MediaTests: XCTestCase {
             }
         }
         if let error = result.error {
-            throw XCTSkip("YouTube download refused on this runner: \(error)")
+            // YouTube may refuse data-center addresses; any other failure (e.g. joining) is a real bug.
+            if error.contains("bot") || error.contains("403") || error.contains("Sign in") || error.contains("unavailable") {
+                throw XCTSkip("YouTube download refused on this runner: \(error)")
+            }
+            XCTFail("YouTube download failed: \(error)")
+            return
         }
         XCTAssertEqual(result.ext, "mp4")
         let counts = try await trackCounts(URL(fileURLWithPath: temp))

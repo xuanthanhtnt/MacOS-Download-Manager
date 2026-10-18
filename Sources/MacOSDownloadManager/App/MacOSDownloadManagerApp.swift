@@ -187,8 +187,8 @@ enum SelfTest {
         Task.detached {
             var report = ""
             do {
-                if !MediaTools.shared.isInstalled {
-                    try await MediaTools.shared.install()
+                if !MediaTools.shared.isComplete {
+                    try await MediaTools.shared.installMissing()
                 }
                 let yt = try await MediaTools.runProcess(MediaTools.shared.ytdlpPath, ["--version"], timeout: 120)
                 let deno = try await MediaTools.runProcess(MediaTools.shared.denoPath, ["--version"], timeout: 60)
@@ -204,6 +204,16 @@ enum SelfTest {
                 unlink(probe)
                 let gatekeeper = try? await MediaTools.runProcess("/usr/sbin/spctl", ["--status"], timeout: 30)
                 report += "gatekeeper=\((gatekeeper?.stdout ?? "").trimmingCharacters(in: .whitespacesAndNewlines))\n"
+                // ffmpeg: downloaded by the app (joins streams macOS cannot join).
+                if let ffmpeg = MediaTools.findFFmpeg() {
+                    let f = try await MediaTools.runProcess(ffmpeg, ["-hide_banner", "-version"], timeout: 60)
+                    let sign = try await MediaTools.runProcess("/usr/bin/codesign", ["-dv", "--verbose=2", ffmpeg], timeout: 60)
+                    let authority = sign.stderr.split(separator: "\n").filter { $0.hasPrefix("Authority=") || $0.hasPrefix("TeamIdentifier=") }
+                    report += "ffmpeg-status=\(f.status)\nffmpeg=\(f.stdout.split(separator: "\n").first ?? "") at \(ffmpeg)\n"
+                        + "ffmpeg-signature=\(authority.joined(separator: "; "))\n"
+                } else {
+                    report += "ffmpeg-status=missing\nffmpeg-error=\(MediaTools.shared.lastError ?? "")\n"
+                }
             } catch {
                 report = "error=\(error.localizedDescription)\n"
             }

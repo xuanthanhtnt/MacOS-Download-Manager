@@ -181,6 +181,8 @@ struct MediaOption: Identifiable, Hashable {
     var merge: MergeMethod
     /// All streams are plain HTTP files that the multi-connection engine downloads itself.
     var direct: Bool
+    /// H.264/HEVC + AAC (or a plain file): plays in QuickTime and on every Mac. VP9/AV1 do not everywhere.
+    var compatible: Bool = true
 }
 
 enum MediaPlanner {
@@ -196,20 +198,35 @@ enum MediaPlanner {
     }
 
     /// Builds the list of qualities the user can choose from, best first, audio-only last.
+    ///
+    /// Plain HTTPS streams (YouTube's normal MP4/M4A files) are preferred: the multi-connection engine
+    /// downloads them and macOS joins them. HLS streams (which yt-dlp now also gets from YouTube) are
+    /// downloaded by yt-dlp as MPEG-TS, which macOS cannot open: they are only offered with ffmpeg,
+    /// which turns them into MP4.
     static func options(for info: YTDLInfo, ffmpeg: Bool) -> [MediaOption] {
         let formats = info.formats
-        let audio = formats.filter(\.isAudioOnly)
-        let bestM4A = audio.filter(m4aAudio).max { $0.bitrate < $1.bitrate }
-        let bestAudio = audio.max { $0.bitrate < $1.bitrate }
-        let bestWebmAudio = audio.filter { $0.ext == "webm" }.max { $0.bitrate < $1.bitrate }
+        let anyDirect = formats.contains { $0.isDirectHTTP && !$0.isAudioOnly }
+        func usable(_ f: YTDLFormat) -> Bool { f.isDirectHTTP || ffmpeg || !anyDirect }
+        /// Direct streams first, then the higher bitrate.
+        func better(_ a: YTDLFormat, _ b: YTDLFormat) -> Bool {
+            if a.isDirectHTTP != b.isDirectHTTP { return a.isDirectHTTP }
+            return a.bitrate > b.bitrate
+        }
+        let audio = formats.filter { $0.isAudioOnly && usable($0) }.sorted(by: better)
+        let bestM4A = audio.first(where: m4aAudio)
+        let bestAudio = audio.first
+        let bestWebmAudio = audio.first { $0.ext == "webm" }
 
         var byHeight: [Int: MediaOption] = [:]
-        let videos = formats.filter { $0.isVideoOnly && $0.height != nil }.sorted { $0.bitrate > $1.bitrate }
+        let videos = formats.filter { $0.isVideoOnly && $0.height != nil && usable($0) }.sorted(by: better)
 
-        func add(_ v: YTDLFormat, _ audioFormat: YTDLFormat, _ merge: MergeMethod) {
+        func add(_ v: YTDLFormat, _ audioFormat: YTDLFormat, compatible: Bool) {
             guard let h = v.height, byHeight[h] == nil else { return }
+            let direct = v.isDirectHTTP && audioFormat.isDirectHTTP
+            // macOS joins plain MP4 + M4A files; anything else (HLS, VP9/AV1, WebM) is joined by ffmpeg.
+            let merge: MergeMethod = (compatible && direct) || !ffmpeg ? .avfoundation : .ffmpeg
             let ext: String
-            if merge == .avfoundation || (v.ext == "mp4" && m4aAudio(audioFormat)) {
+            if compatible || (v.ext == "mp4" && m4aAudio(audioFormat)) {
                 ext = "mp4"
             } else if v.ext == "webm" && audioFormat.ext == "webm" {
                 ext = "webm"
@@ -226,32 +243,36 @@ enum MediaPlanner {
                                       height: h,
                                       audioOnly: false,
                                       merge: merge,
-                                      direct: v.isDirectHTTP && audioFormat.isDirectHTTP)
+                                      direct: direct,
+                                      compatible: compatible)
         }
 
-        // 1. MP4 (H.264/HEVC) + AAC: joined by macOS itself, plays everywhere.
+        // 1. MP4 (H.264/HEVC) + AAC: plays everywhere.
         if let m4a = bestM4A {
-            for v in videos where avFoundationVideo(v) { add(v, m4a, .avfoundation) }
+            for v in videos where avFoundationVideo(v) { add(v, m4a, compatible: true) }
         }
-        // 2. Other codecs (VP9, AV1) for the remaining qualities, joined with ffmpeg when it is installed.
+        // 2. Other codecs (VP9, AV1) for the remaining qualities, joined with ffmpeg.
         if ffmpeg {
             for v in videos where !avFoundationVideo(v) {
-                if let a = v.ext == "webm" ? (bestWebmAudio ?? bestAudio) : (bestM4A ?? bestAudio) {
-                    add(v, a, .ffmpeg)
+                let webm = v.ext == "webm"
+                if let a = webm ? (bestWebmAudio ?? bestAudio) : (bestM4A ?? bestAudio) {
+                    add(v, a, compatible: false)
                 }
             }
         }
 
         // Files that already contain picture and sound.
-        for p in formats.filter(\.isMuxed).sorted(by: { $0.bitrate > $1.bitrate }) {
+        for p in formats.filter({ $0.isMuxed && usable($0) }).sorted(by: better) {
             let h = p.height ?? 0
             if byHeight[h] != nil { continue }
             let ext = (p.ext ?? "mp4").lowercased()
+            let v = (p.vcodec ?? "").lowercased()
+            let compatible = !(v.hasPrefix("vp") || v.hasPrefix("av01")) && ext != "webm"
             byHeight[h] = MediaOption(spec: p.formatID, formatIDs: [p.formatID],
                                       title: h > 0 ? qualityTitle(p) : String(localized: "Video"),
                                       detail: detail(ext: ext, codec: p.codecName, size: p.size),
                                       size: p.size, ext: ext == "m3u8" ? "mp4" : ext, height: h, audioOnly: false,
-                                      merge: .none, direct: p.isDirectHTTP)
+                                      merge: .none, direct: p.isDirectHTTP, compatible: compatible)
         }
 
         var result = byHeight.values.sorted { ($0.height ?? 0) > ($1.height ?? 0) }
@@ -264,18 +285,21 @@ enum MediaPlanner {
             result.append(MediaOption(spec: a.formatID, formatIDs: [a.formatID], title: title,
                                       detail: detail(ext: ext, codec: a.codecName, size: a.size),
                                       size: a.size, ext: ext, height: nil, audioOnly: true,
-                                      merge: .none, direct: a.isDirectHTTP))
+                                      merge: .none, direct: a.isDirectHTTP, compatible: m4aAudio(a)))
         }
         return result
     }
 
-    /// The option to preselect: the best quality not above `maxHeight` (0 = no limit).
+    /// The option to preselect: the best quality not above `maxHeight` (0 = no limit). Unless a quality
+    /// above 1080p is asked for, qualities that play everywhere (H.264) win over VP9/AV1 ones.
     static func preferred(_ options: [MediaOption], maxHeight: Int) -> MediaOption? {
         let videos = options.filter { !$0.audioOnly }
-        if maxHeight > 0, let fit = videos.first(where: { ($0.height ?? 0) <= maxHeight && ($0.height ?? 0) > 0 }) {
+        let compatible = videos.filter(\.compatible)
+        let pool = maxHeight <= 1080 && !compatible.isEmpty ? compatible : videos
+        if maxHeight > 0, let fit = pool.first(where: { ($0.height ?? 0) <= maxHeight && ($0.height ?? 0) > 0 }) {
             return fit
         }
-        return videos.first ?? options.first
+        return pool.first ?? options.first
     }
 
     /// Finds the saved choice again after the formats were re-read (links expire), or the closest one.
@@ -345,13 +369,48 @@ enum MediaMuxer {
     }
 
     static func mergeWithFFmpeg(_ ffmpeg: String, video: URL, audio: URL, output: URL) async throws {
+        try await runFFmpeg(ffmpeg, ["-i", video.path, "-i", audio.path, "-map", "0:v:0", "-map", "1:a:0"], output: output)
+    }
+
+    /// Rewrites one file into the container of `output` (e.g. MPEG-TS → MP4) without re-encoding.
+    static func remuxWithFFmpeg(_ ffmpeg: String, input: URL, output: URL) async throws {
+        try await runFFmpeg(ffmpeg, ["-i", input.path, "-map", "0"], output: output)
+    }
+
+    private static func runFFmpeg(_ ffmpeg: String, _ inputs: [String], output: URL) async throws {
         try? FileManager.default.removeItem(at: output)
-        let result = try await MediaTools.runProcess(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y",
-                                                              "-i", video.path, "-i", audio.path,
-                                                              "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", output.path])
+        var args = ["-hide_banner", "-loglevel", "error", "-y"] + inputs + ["-c", "copy"]
+        if ["mp4", "m4a", "mov", "m4v"].contains(output.pathExtension.lowercased()) {
+            args += ["-movflags", "+faststart"]
+        }
+        let result = try await MediaTools.runProcess(ffmpeg, args + [output.path], timeout: 3 * 60 * 60)
         guard result.status == 0, FileManager.default.fileExists(atPath: output.path) else {
+            try? FileManager.default.removeItem(at: output)
             throw MediaError.message(result.stderrTail.isEmpty ? String(localized: "Could not join video and audio") : result.stderrTail)
         }
+    }
+
+    enum Container: Equatable {
+        case mp4        // ISO base media (MP4, M4A, MOV, fragmented/DASH MP4): macOS can open it
+        case mpegTS     // MPEG transport stream (HLS): macOS cannot open it as a file
+        case matroska   // MKV / WebM
+        case unknown
+    }
+
+    /// Looks at the first bytes of a file to find its real format (the extension can be wrong:
+    /// yt-dlp saves HLS streams as MPEG-TS in a .mp4 file when ffmpeg is missing).
+    static func sniff(_ url: URL) -> Container {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return .unknown }
+        defer { try? handle.close() }
+        let head = (try? handle.read(upToCount: 189 * 2)) ?? Data()
+        let bytes = [UInt8](head)
+        if bytes.count >= 8 {
+            let box = String(decoding: bytes[4..<8], as: UTF8.self)
+            if ["ftyp", "styp", "moov", "mdat", "free", "skip", "wide", "sidx", "moof", "pdin"].contains(box) { return .mp4 }
+        }
+        if bytes.count >= 4, bytes[0] == 0x1A, bytes[1] == 0x45, bytes[2] == 0xDF, bytes[3] == 0xA3 { return .matroska }
+        if let first = bytes.first, first == 0x47, bytes.count < 189 || bytes[188] == 0x47 { return .mpegTS }
+        return .unknown
     }
 }
 
@@ -368,20 +427,35 @@ enum MediaError: LocalizedError {
 // MARK: - Helper tools (yt-dlp, Deno, ffmpeg)
 
 /// Manages the open-source helpers used for video sites: yt-dlp (reads the video page and lists
-/// the streams) and Deno (the JavaScript runtime yt-dlp needs for YouTube). They are downloaded
-/// from their official GitHub releases on first use and checked against the published SHA-256 sums.
+/// the streams), Deno (the JavaScript runtime yt-dlp needs for YouTube) and ffmpeg (joins streams
+/// that macOS cannot join itself, and turns HLS/MPEG-TS downloads into MP4). yt-dlp and Deno come
+/// from their official GitHub releases, ffmpeg from Martin Riedl's signed macOS builds
+/// (ffmpeg.martin-riedl.de); all are checked against their published SHA-256 sums on first use.
 final class MediaTools: ObservableObject {
     static let shared = MediaTools()
 
     @Published private(set) var ytdlpVersion: String?
     @Published private(set) var denoVersion: String?
     @Published private(set) var ffmpegPath: String?
+    @Published private(set) var ffmpegVersion: String?
     @Published private(set) var installing = false
     @Published private(set) var installStatus = ""
     @Published private(set) var lastError: String?
 
     private static let ytdlpURL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
     private static let ytdlpSums = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"
+    private static var ffmpegArch: String {
+        #if arch(arm64)
+        return "arm64"
+        #else
+        return "amd64"
+        #endif
+    }
+    static var ffmpegDownloadURL: String {
+        "https://ffmpeg.martin-riedl.de/redirect/latest/macos/\(ffmpegArch)/release/ffmpeg.zip"
+    }
+    private let installQueue = SerialWork()
+
     private static var denoAsset: String {
         #if arch(arm64)
         return "deno-aarch64-apple-darwin.zip"
@@ -400,16 +474,21 @@ final class MediaTools: ObservableObject {
 
     var ytdlpPath: String { toolsDirectory.appendingPathComponent("yt-dlp").path }
     var denoPath: String { toolsDirectory.appendingPathComponent("deno").path }
+    /// The app's own copy of ffmpeg (a copy installed with Homebrew is used too).
+    var ffmpegToolPath: String { toolsDirectory.appendingPathComponent("ffmpeg").path }
 
+    /// yt-dlp and Deno: enough to read video pages.
     var isInstalled: Bool {
         FileManager.default.isExecutableFile(atPath: ytdlpPath) && FileManager.default.isExecutableFile(atPath: denoPath)
     }
 
+    /// All components, ffmpeg included.
+    var isComplete: Bool { isInstalled && Self.findFFmpeg() != nil }
+
     private init() {}
 
-    /// ffmpeg is optional (needed only for VP9/AV1 qualities): the copy installed with Homebrew is used if present.
     static func findFFmpeg() -> String? {
-        let candidates = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/local/bin/ffmpeg"]
+        let candidates = [MediaTools.shared.ffmpegToolPath, "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/local/bin/ffmpeg"]
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
@@ -418,16 +497,23 @@ final class MediaTools: ObservableObject {
         Task.detached {
             var y: String?
             var d: String?
+            var fv: String?
             if installed {
                 y = try? await MediaTools.runProcess(ytdlp, ["--version"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 let denoOut = try? await MediaTools.runProcess(deno, ["--version"]).stdout
                 d = denoOut?.split(separator: "\n").first.map { String($0).replacingOccurrences(of: "deno ", with: "") }
             }
             let f = MediaTools.findFFmpeg()
+            if let f, let out = try? await MediaTools.runProcess(f, ["-hide_banner", "-version"], timeout: 30).stdout {
+                // "ffmpeg version 9.0.2 Copyright …"
+                let words = out.split(separator: "\n").first?.split(separator: " ") ?? []
+                fv = words.count > 2 ? String(words[2]) : nil
+            }
             await MainActor.run {
                 self.ytdlpVersion = y
                 self.denoVersion = d
                 self.ffmpegPath = f
+                self.ffmpegVersion = fv
             }
         }
     }
@@ -438,21 +524,57 @@ final class MediaTools: ObservableObject {
         await MainActor.run { self.installStatus = text }
     }
 
-    /// Downloads (or re-downloads) yt-dlp and Deno.
+    /// Downloads (or re-downloads) yt-dlp, Deno and ffmpeg.
     func install() async throws {
+        try await install(onlyMissing: false)
+    }
+
+    /// Downloads the components that are not there yet (for example ffmpeg, added in version 1.1.3).
+    func installMissing() async throws {
+        try await install(onlyMissing: true)
+    }
+
+    /// Makes sure ffmpeg is available; returns its path, or nil when it could not be downloaded.
+    func ensureFFmpeg() async -> String? {
+        if let path = Self.findFFmpeg() { return path }
+        try? await installQueue.run { [self] in
+            if Self.findFFmpeg() == nil { try await self.runInstall { try await self.installFFmpeg() } }
+        }
+        return Self.findFFmpeg()
+    }
+
+    private func install(onlyMissing: Bool) async throws {
+        try await installQueue.run { [self] in
+            try await self.runInstall {
+                let fm = FileManager.default
+                if !onlyMissing || !fm.isExecutableFile(atPath: self.ytdlpPath) { try await self.installYtdlp() }
+                if !onlyMissing || !fm.isExecutableFile(atPath: self.denoPath) { try await self.installDeno() }
+                // ffmpeg is only needed for some streams: a failure is reported but does not stop video downloads.
+                if !onlyMissing || Self.findFFmpeg() == nil {
+                    do {
+                        try await self.installFFmpeg()
+                    } catch {
+                        await MainActor.run { self.lastError = error.localizedDescription }
+                    }
+                }
+            }
+        }
+    }
+
+    private func runInstall(_ work: () async throws -> Void) async throws {
         await MainActor.run {
             self.installing = true
             self.lastError = nil
         }
         defer { Task { await MainActor.run { self.installing = false } } }
         do {
-            try await installYtdlp()
-            try await installDeno()
+            try await work()
             await setStatus(String(localized: "Components are ready"))
             refreshStatus()
         } catch {
             await MainActor.run { self.lastError = error.localizedDescription }
             await setStatus("")
+            refreshStatus()
             throw error
         }
     }
@@ -522,12 +644,48 @@ final class MediaTools: ObservableObject {
         try? FileManager.default.removeItem(at: unpack)
     }
 
+    private func installFFmpeg() async throws {
+        await setStatus(String(localized: "Downloading ffmpeg (joins video and audio)…"))
+        guard let url = URL(string: Self.ffmpegDownloadURL) else { throw MediaError.message("Bad URL") }
+        let (zip, response) = try await URLSession.shared.download(from: url)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            throw MediaError.message(HTTPUtils.message(forStatus: http.statusCode) + " – " + url.absoluteString)
+        }
+        // The "latest" address redirects to the versioned file; its checksum sits next to it.
+        let fileURL = response.url ?? url
+        guard let sumsFile = try? await fetch(fileURL.absoluteString + ".sha256"),
+              let text = try? String(contentsOf: sumsFile, encoding: .utf8),
+              let expected = Self.firstHash(in: text, for: nil) else {
+            throw MediaError.message(String(localized: "Could not verify the downloaded ffmpeg (checksum missing)"))
+        }
+        guard try sha256(zip) == expected else {
+            throw MediaError.message(String(localized: "The downloaded ffmpeg failed the checksum check"))
+        }
+        let unpack = toolsDirectory.appendingPathComponent("ffmpeg-unpack", isDirectory: true)
+        try? FileManager.default.removeItem(at: unpack)
+        try FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: unpack) }
+        let result = try await Self.runProcess("/usr/bin/ditto", ["-x", "-k", zip.path, unpack.path])
+        let found = FileManager.default.enumerator(at: unpack, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .first { $0.lastPathComponent == "ffmpeg" && !$0.hasDirectoryPath }
+        guard result.status == 0, let binary = found else {
+            throw MediaError.message(String(localized: "Could not unpack ffmpeg"))
+        }
+        // These builds are signed by their author: make sure the signature is intact.
+        let signature = try await Self.runProcess("/usr/bin/codesign", ["--verify", "--strict", binary.path], timeout: 60)
+        guard signature.status == 0 else {
+            throw MediaError.message(String(localized: "The downloaded ffmpeg is not correctly signed") + "\n" + signature.stderrTail)
+        }
+        try placeExecutable(binary, at: ffmpegToolPath)
+    }
+
     private func placeExecutable(_ source: URL, at path: String) throws {
         let fm = FileManager.default
         try? fm.removeItem(atPath: path)
         try fm.moveItem(at: source, to: URL(fileURLWithPath: path))
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
-        // Files written by this app are quarantined (LSFileQuarantineEnabled); helpers we verified ourselves are not.
+        // Helpers we verified ourselves must not be quarantined (versions before 1.1.2 quarantined them).
         removexattr(path, "com.apple.quarantine", 0)
     }
 
@@ -653,5 +811,27 @@ final class MediaTools: ObservableObject {
                 continuation.resume(throwing: error)
             }
         }
+    }
+}
+
+/// Runs async jobs one after another (two windows must not install the same component at once).
+final class SerialWork {
+    private let lock = NSLock()
+    private var tail: Task<Void, Never>?
+
+    func run(_ job: @escaping () async throws -> Void) async throws {
+        try await enqueue(job).value
+    }
+
+    private func enqueue(_ job: @escaping () async throws -> Void) -> Task<Void, Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        let previous = tail
+        let task = Task<Void, Error> {
+            await previous?.value
+            try await job()
+        }
+        tail = Task { _ = try? await task.value }
+        return task
     }
 }

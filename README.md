@@ -23,7 +23,7 @@ Native Swift / SwiftUI · Apple Silicon & Intel · macOS 13 Ventura trở lên</
 | Làm mới địa chỉ tải khi link hết hạn (Refresh download address) | ✅ Giữ phần đã tải, chỉ đổi link |
 | Bắt link tải từ trình duyệt | ✅ Tiện ích cho Chrome, Edge, Brave, Opera, Vivaldi, Arc, Firefox |
 | Menu chuột phải “Download with IDM” / “Download all links” | ✅ |
-| Tải video YouTube và các trang video (hình + tiếng tách riêng) | ✅ Nút **“Tải video từ trang này”** trong tiện ích, chọn chất lượng (tới 1080p MP4; 1440p/4K khi có ffmpeg), tải song song luồng hình & tiếng bằng engine đa kết nối rồi **ghép thành MP4** không cần mã hoá lại. Dùng [yt-dlp](https://github.com/yt-dlp/yt-dlp) + Deno (tự tải lần đầu) |
+| Tải video YouTube và các trang video (hình + tiếng tách riêng) | ✅ Nút **“Tải video từ trang này”** trong tiện ích, chọn chất lượng (tới 4K), tải song song luồng hình & tiếng bằng engine đa kết nối rồi **ghép thành MP4** không cần mã hoá lại. Dùng [yt-dlp](https://github.com/yt-dlp/yt-dlp) + Deno + ffmpeg (tự tải lần đầu) |
 | Bắt video trên trang web (Video grabber) | ✅ Phát hiện video/âm thanh & luồng **HLS (m3u8)**, tải song song, giải mã AES-128, ghép thành .ts/.mp4 |
 | Hộp thoại “Download File Info” (chọn tên, thư mục, thể loại, mô tả) | ✅ Có xem trước dung lượng, khả năng tải tiếp, chọn chất lượng HLS |
 | Cửa sổ tiến trình với biểu đồ các kết nối | ✅ Thanh phân đoạn + bảng từng kết nối |
@@ -72,7 +72,7 @@ Tiện ích có: tự bắt các tệp theo đuôi, menu chuột phải *Downloa
 2. Lần đầu, app hỏi tải hai thành phần mã nguồn mở **yt-dlp** và **Deno** (~100 MB, tải từ GitHub chính thức, kiểm tra SHA-256).
 3. Chọn chất lượng → **Bắt đầu tải**. Luồng hình và luồng tiếng được tải song song nhiều kết nối, sau đó ghép thành một file MP4.
 
-- Chất lượng tới 1080p (H.264) được macOS tự ghép. Muốn 1440p/4K (VP9/AV1): cài ffmpeg bằng Homebrew `brew install ffmpeg`.
+- Chất lượng tới 1080p (H.264) được macOS tự ghép. ffmpeg (app tự tải bản có chữ ký từ [ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de), hoặc dùng bản Homebrew nếu có) ghép các luồng còn lại, chuyển HLS sang MP4 và mở thêm 1440p/4K (VP9/AV1 – mở bằng VLC/IINA).
 - Video cần đăng nhập/giới hạn tuổi: **Tùy chọn → Video → Dùng cookie của** → chọn trình duyệt bạn đang đăng nhập.
 - Trang nào tải không được nữa: **Tùy chọn → Video → Cập nhật yt-dlp**.
 - Không hỗ trợ nội dung có DRM (Netflix, Spotify…) và video đang phát trực tiếp.

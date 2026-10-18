@@ -59,7 +59,11 @@ struct MediaInfoView: View {
             case .loading:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Reading the video page…").foregroundStyle(.secondary)
+                    if tools.installing && !tools.installStatus.isEmpty {
+                        Text(verbatim: tools.installStatus).foregroundStyle(.secondary)
+                    } else {
+                        Text("Reading the video page…").foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 8)
@@ -124,7 +128,7 @@ struct MediaInfoView: View {
     private var componentsPanel: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
-                Text("To download videos from YouTube and other sites, MacOS Download Manager uses the free open-source tools yt-dlp and Deno (about 100 MB). They are downloaded once from their official GitHub pages and checked before use.")
+                Text("To download videos from YouTube and other sites, MacOS Download Manager uses the free open-source tools yt-dlp, Deno and ffmpeg. They are downloaded once from their official pages and checked before use.")
                     .fixedSize(horizontal: false, vertical: true)
                 if tools.installing {
                     HStack {
@@ -182,10 +186,16 @@ struct MediaInfoView: View {
             .frame(maxHeight: 230)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
 
-            if tools.ffmpegPath == nil && MediaTools.findFFmpeg() == nil {
-                Text("Qualities above 1080p (VP9/AV1) appear when ffmpeg is installed (Homebrew: brew install ffmpeg).")
+            if MediaTools.findFFmpeg() == nil {
+                Text("ffmpeg could not be downloaded, so qualities above 1080p (VP9/AV1) are hidden. Download it in Options → Video, or install it with Homebrew (brew install ffmpeg).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let option = selectedOption, !option.compatible {
+                Text("VP9/AV1 videos do not play in QuickTime on every Mac: VLC or IINA play them. Choose an H.264 quality for a file that plays everywhere.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
@@ -237,8 +247,15 @@ struct MediaInfoView: View {
         guard !initialized else { return }
         initialized = true
         tools.refreshStatus()
-        if tools.isInstalled {
+        if tools.isComplete {
             load()
+        } else if tools.isInstalled {
+            // ffmpeg (new in 1.1.3) is downloaded once, before the qualities are listed.
+            phase = .loading
+            Task {
+                _ = await tools.ensureFFmpeg()
+                load()
+            }
         } else {
             phase = .needsComponents
         }
