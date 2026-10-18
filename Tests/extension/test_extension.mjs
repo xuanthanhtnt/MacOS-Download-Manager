@@ -86,7 +86,6 @@ const browser = await puppeteer.launch({
   executablePath: process.env.MDM_CHROME || undefined,
   ignoreDefaultArgs: ["--disable-extensions"],
   args: [
-    `--disable-extensions-except=${EXT}`,
     `--load-extension=${EXT}`,
     "--no-first-run",
     "--no-default-browser-check",
@@ -212,6 +211,17 @@ try {
     reloaded = seen.startsWith(`loaded=${newVersion}`);
   }
   const workers = browser.targets().filter((t) => t.type() === "service_worker").map((t) => t.url().split("/").pop());
+  if (!reloaded) {
+    // Why: Chrome's own view of the extension (state, disable reasons, version).
+    try {
+      const q = await browser.newPage();
+      await q.goto("chrome://extensions-internals", { timeout: 5000 });
+      const text = await q.evaluate(() => document.body.innerText);
+      const at = text.indexOf(extId);
+      console.log(`::notice title=extensions-internals::${text.slice(Math.max(0, at - 200), at + 1500).replace(/\n/g, "%0A")}`);
+      await q.close();
+    } catch (e) { console.log(`::notice title=extensions-internals::${e.message}`); }
+  }
   check(reloaded, `extension reloaded itself after an update on disk (${seen}; workers: ${JSON.stringify(workers)}; last request: ${requestPaths[requestPaths.length - 1]})`);
 } catch (e) {
   failures++;
