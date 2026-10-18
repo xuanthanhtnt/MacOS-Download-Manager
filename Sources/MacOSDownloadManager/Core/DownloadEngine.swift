@@ -83,6 +83,14 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
     private var meter = SpeedMeter()
     private var currentSpeed: Double = 0
     private var timer: DispatchSourceTimer?
+    private let stopLock = NSLock()
+    private var stopRequestedFlag = false
+
+    /// Set from any thread as soon as stop() is called, so queued callbacks can bail out quickly.
+    private var stopRequested: Bool {
+        stopLock.lock(); defer { stopLock.unlock() }
+        return stopRequestedFlag
+    }
 
     init(item: DownloadItem, tempPath: String, config: EngineConfig) {
         self.url = item.url
@@ -121,6 +129,9 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
     }
 
     func stop() {
+        stopLock.lock()
+        stopRequestedFlag = true
+        stopLock.unlock()
         queue.async { [self] in
             guard !stopped, !finished else { return }
             stopped = true
@@ -446,7 +457,7 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard !stopped, !finished, let c = connections[ObjectIdentifier(dataTask)], !c.closing,
+        guard !stopped, !finished, !stopRequested, let c = connections[ObjectIdentifier(dataTask)], !c.closing,
               let idx = index(of: c.segmentID) else { return }
         var chunk = data
         let seg = segments[idx]
@@ -484,7 +495,7 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         if delay > 0.002 {
             dataTask.suspend()
             Thread.sleep(forTimeInterval: min(delay, 1.0))
-            if !stopped && !finished { dataTask.resume() }
+            if !stopped && !finished && !stopRequested { dataTask.resume() }
         }
     }
 
