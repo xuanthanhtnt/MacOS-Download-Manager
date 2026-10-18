@@ -195,11 +195,24 @@ enum SelfTest {
                 report = "ytdlp-status=\(yt.status)\nytdlp=\(yt.stdout.trimmingCharacters(in: .whitespacesAndNewlines))\n"
                     + "ytdlp-error=\(yt.stderrTail)\ndeno-status=\(deno.status)\n"
                     + "deno=\(deno.stdout.split(separator: "\n").first ?? "")\n"
+                // yt-dlp unpacks its Python library into a temp folder: if files written by helper
+                // programs are quarantined, macOS refuses to load that library on Macs with Gatekeeper on.
+                let probe = NSTemporaryDirectory() + "mdm-quarantine-probe-\(getpid())"
+                unlink(probe)
+                _ = try await MediaTools.runProcess("/usr/bin/touch", [probe], timeout: 30)
+                report += "child-quarantine=\(isQuarantined(probe) ? "yes" : "no")\n"
+                unlink(probe)
+                let gatekeeper = try? await MediaTools.runProcess("/usr/sbin/spctl", ["--status"], timeout: 30)
+                report += "gatekeeper=\((gatekeeper?.stdout ?? "").trimmingCharacters(in: .whitespacesAndNewlines))\n"
             } catch {
                 report = "error=\(error.localizedDescription)\n"
             }
             try? report.write(toFile: path, atomically: true, encoding: .utf8)
             await MainActor.run { NSApp.terminate(nil) }
         }
+    }
+
+    static func isQuarantined(_ path: String) -> Bool {
+        getxattr(path, "com.apple.quarantine", nil, 0, 0, 0) >= 0
     }
 }
