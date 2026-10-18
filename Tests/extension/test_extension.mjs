@@ -180,6 +180,39 @@ try {
   check(files().length === 0, `browser stopped its copy when the answer was lost (files: ${JSON.stringify(files())})`);
 
   // 7. The app refreshed the extension folder with a newer version: the extension reloads itself.
+  const extId = new URL(worker.url()).host;
+  const extensionState = async () => {
+    const p = await browser.newPage();
+    try {
+      await p.goto(`chrome-extension://${extId}/popup.html`, { timeout: 5000 });
+      return await p.evaluate(async () => {
+        const disk = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })
+          .then((r) => r.json()).then((j) => j.version, (e) => "fetch failed: " + e);
+        return `loaded=${chrome.runtime.getManifest().version} disk=${disk}`;
+      });
+    } catch (e) {
+      return "page: " + String(e.message || e).slice(0, 60);
+    } finally {
+      await p.close().catch(() => {});
+    }
+  };
+  const internals = async () => {
+    const q = await browser.newPage();
+    try {
+      await q.goto("chrome://extensions-internals", { timeout: 5000 });
+      const text = await q.evaluate(() => document.body.innerText);
+      const at = text.indexOf(extId);
+      if (at < 0) return "id not listed";
+      const part = text.slice(at, at + 4000);
+      const pick = (k) => (part.match(new RegExp(`"${k}":\\s*("[^"]*"|\\[[^\\]]*\\]|\\w+)`)) || [])[1];
+      return ["state", "disable_reasons", "version", "location", "blocklist_state"].map((k) => `${k}=${pick(k)}`).join(" ");
+    } catch (e) {
+      return "internals: " + e.message;
+    } finally {
+      await q.close().catch(() => {});
+    }
+  };
+  const before = await extensionState();
   const manifestFile = path.join(EXT, "manifest.json");
   const updated = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
   const newVersion = "99.0.0";
@@ -187,42 +220,20 @@ try {
   fs.writeFileSync(manifestFile, JSON.stringify(updated, null, 2));
   shippedExtension = newVersion;
   appRunning = true;
+  const afterWrite = await extensionState();
   try {
     const w = await worker.worker();
     await Promise.race([w.evaluate(() => ping()), sleep(5000)]);
   } catch (e) { /* the worker may already be reloading */ }
-  // Read the loaded version from an extension page (more reliable than evaluating in the worker).
-  const extId = new URL(worker.url()).host;
   let seen = "";
   let reloaded = false;
   for (let i = 0; i < 12 && !reloaded; i++) {
     await sleep(1500);
-    const p = await browser.newPage();
-    try {
-      await p.goto(`chrome-extension://${extId}/popup.html`, { timeout: 5000 });
-      seen = await p.evaluate(async () => {
-        const disk = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" }).then((r) => r.json()).then((j) => j.version, (e) => "fetch failed: " + e);
-        return `loaded=${chrome.runtime.getManifest().version} disk=${disk}`;
-      });
-    } catch (e) {
-      seen = "page: " + String(e.message || e).slice(0, 80);
-    }
-    await p.close().catch(() => {});
+    seen = await extensionState();
     reloaded = seen.startsWith(`loaded=${newVersion}`);
   }
-  const workers = browser.targets().filter((t) => t.type() === "service_worker").map((t) => t.url().split("/").pop());
-  if (!reloaded) {
-    // Why: Chrome's own view of the extension (state, disable reasons, version).
-    try {
-      const q = await browser.newPage();
-      await q.goto("chrome://extensions-internals", { timeout: 5000 });
-      const text = await q.evaluate(() => document.body.innerText);
-      const at = text.indexOf(extId);
-      console.log(`::notice title=extensions-internals::${text.slice(Math.max(0, at - 200), at + 1500).replace(/\n/g, "%0A")}`);
-      await q.close();
-    } catch (e) { console.log(`::notice title=extensions-internals::${e.message}`); }
-  }
-  check(reloaded, `extension reloaded itself after an update on disk (${seen}; workers: ${JSON.stringify(workers)}; last request: ${requestPaths[requestPaths.length - 1]})`);
+  const chromeView = reloaded ? "" : await internals();
+  check(reloaded, `extension reloaded itself after an update on disk (before: ${before}; after write: ${afterWrite}; end: ${seen}; chrome: ${chromeView}; last request: ${requestPaths[requestPaths.length - 1]})`);
 } catch (e) {
   failures++;
   console.log(`::error::Extension test crashed: ${e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e}`);
