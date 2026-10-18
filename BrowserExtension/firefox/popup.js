@@ -33,6 +33,11 @@ function nameOf(url) {
 
 async function init() {
   document.getElementById("version").textContent = "v" + api.runtime.getManifest().version;
+  // The app copies its newer extension into this folder: apply a waiting update when the popup opens.
+  fetch(api.runtime.getURL("manifest.json"), { cache: "no-store" })
+    .then((r) => r.json())
+    .then((m) => { if (m.version && m.version !== api.runtime.getManifest().version) api.runtime.reload(); })
+    .catch(() => {});
   const status = document.getElementById("status");
   const ping = await send({ type: "ping" });
   if (ping.ok) {

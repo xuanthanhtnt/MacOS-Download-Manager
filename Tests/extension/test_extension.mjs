@@ -79,7 +79,6 @@ fs.writeFileSync(path.join(profile, "Default", "Preferences"), JSON.stringify({
   download: { default_directory: downloads, prompt_for_download: process.env.MDM_PROMPT === "1", directory_upgrade: true },
   profile: { default_content_setting_values: { automatic_downloads: 1 } },
   // Like the user's browser: "Load unpacked" needs Developer mode, and Chrome reloads unpacked extensions only with it.
-  extensions: { ui: { developer_mode: true } }
 }));
 
 const browser = await puppeteer.launch({
@@ -181,67 +180,68 @@ try {
   check(received.length >= 1, `link sent to the app although the answer was lost (received: ${received.length})`);
   check(files().length === 0, `browser stopped its copy when the answer was lost (files: ${JSON.stringify(files())})`);
 
-  // 7. The app refreshed the extension folder with a newer version: the extension reloads itself.
-  const extId = new URL(worker.url()).host;
-  const extensionState = async () => {
-    const p = await browser.newPage();
-    try {
-      await p.goto(`chrome-extension://${extId}/popup.html`, { timeout: 5000 });
-      return await p.evaluate(async () => {
-        const disk = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })
-          .then((r) => r.json()).then((j) => j.version, (e) => "fetch failed: " + e);
-        return `loaded=${chrome.runtime.getManifest().version} disk=${disk}`;
-      });
-    } catch (e) {
-      return "page: " + String(e.message || e).slice(0, 60);
-    } finally {
-      await p.close().catch(() => {});
-    }
-  };
-  const internals = async () => {
-    const q = await browser.newPage();
-    try {
-      await q.goto("chrome://extensions-internals", { timeout: 5000 });
-      const text = await q.evaluate(() => document.body.innerText);
-      const at = text.indexOf(extId);
-      if (at < 0) return "id not listed";
-      const part = text.slice(at, at + 4000);
-      const pick = (k) => (part.match(new RegExp(`"${k}":\\s*("[^"]*"|\\[[^\\]]*\\]|\\w+)`)) || [])[1];
-      return ["state", "disable_reasons", "version", "location", "blocklist_state"].map((k) => `${k}=${pick(k)}`).join(" ");
-    } catch (e) {
-      return "internals: " + e.message;
-    } finally {
-      await q.close().catch(() => {});
-    }
-  };
-  const before = await extensionState();
-  const manifestFile = path.join(EXT, "manifest.json");
-  const updated = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
-  const newVersion = "99.0.0";
-  updated.version = newVersion;
-  fs.writeFileSync(manifestFile, JSON.stringify(updated, null, 2));
-  shippedExtension = newVersion;
-  appRunning = true;
-  const afterWrite = await extensionState();
-  try {
-    const w = await worker.worker();
-    await Promise.race([w.evaluate(() => ping()), sleep(5000)]);
-  } catch (e) { /* the worker may already be reloading */ }
-  let seen = "";
-  let reloaded = false;
-  for (let i = 0; i < 12 && !reloaded; i++) {
-    await sleep(1500);
-    seen = await extensionState();
-    reloaded = seen.startsWith(`loaded=${newVersion}`);
-  }
-  const chromeView = reloaded ? "" : await internals();
-  check(reloaded, `extension reloaded itself after an update on disk (before: ${before}; after write: ${afterWrite}; end: ${seen}; chrome: ${chromeView}; last request: ${requestPaths[requestPaths.length - 1]})`);
 } catch (e) {
   failures++;
   console.log(`::error::Extension test crashed: ${e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e}`);
 } finally {
   await browser.close().catch(() => {});
   bridge.close();
+}
+
+// 7. Self-update, in a browser where the extension is loaded like "Load unpacked" (Developer mode on):
+// the app copies a newer version into the extension folder, and the extension reloads itself.
+async function selfUpdateCheck() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mdm-ext-upd-"));
+  fs.cpSync(SOURCE_EXT, dir, { recursive: true });
+  const profile2 = fs.mkdtempSync(path.join(os.tmpdir(), "mdm-profile2-"));
+  fs.mkdirSync(path.join(profile2, "Default"), { recursive: true });
+  fs.writeFileSync(path.join(profile2, "Default", "Preferences"), JSON.stringify({ extensions: { ui: { developer_mode: true } } }));
+  const b = await puppeteer.launch({
+    headless: process.env.MDM_HEADLESS === "1",
+    userDataDir: profile2,
+    executablePath: process.env.MDM_CHROME || undefined,
+    pipe: true,
+    enableExtensions: true,
+    args: ["--no-first-run", "--no-default-browser-check", "--no-proxy-server",
+           ...(process.env.MDM_NO_SANDBOX === "1" ? ["--no-sandbox"] : [])]
+  });
+  try {
+    if (typeof b.installExtension !== "function") {
+      console.log("::notice title=Extension self-update::skipped (Puppeteer without installExtension)");
+      return;
+    }
+    const id = await b.installExtension(dir);
+    const state = async () => {
+      const p = await b.newPage();
+      try {
+        await p.goto(`chrome-extension://${id}/popup.html`, { timeout: 5000 });
+        return await p.evaluate(() => `loaded=${chrome.runtime.getManifest().version}`);
+      } catch (e) {
+        return "page: " + String(e.message || e).slice(0, 60);
+      } finally {
+        await p.close().catch(() => {});
+      }
+    };
+    const before = await state();
+    const manifestFile = path.join(dir, "manifest.json");
+    const m = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    m.version = "99.0.0";
+    fs.writeFileSync(manifestFile, JSON.stringify(m, null, 2));
+    let seen = await state(); // opening the popup applies a waiting update
+    for (let i = 0; i < 12 && !seen.startsWith("loaded=99.0.0"); i++) {
+      await sleep(1500);
+      seen = await state();
+    }
+    check(seen.startsWith("loaded=99.0.0"), `extension (loaded unpacked) updated itself from its folder (before: ${before}; now: ${seen})`);
+  } finally {
+    await b.close().catch(() => {});
+  }
+}
+try {
+  await selfUpdateCheck();
+} catch (e) {
+  failures++;
+  console.log(`::error::Extension self-update test crashed: ${e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e}`);
 }
 
 console.log(failures ? `${failures} check(s) failed` : "all extension checks passed");
