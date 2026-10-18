@@ -8,6 +8,9 @@ struct EngineConfig {
     var headers: [String: String]
     var credential: URLCredential?
     var proxy: [AnyHashable: Any]?
+    /// When set, each HTTP request asks for at most this many bytes; the connection continues with a
+    /// new request afterwards. Some servers (e.g. video CDNs) slow down very large range requests.
+    var maxRequestSize: Int64? = nil
 }
 
 struct EngineProgress {
@@ -20,6 +23,7 @@ struct EngineProgress {
     var resumable: Bool
     var hlsDone: [Int]? = nil
     var hlsCount: Int? = nil
+    var mediaParts: [MediaPartState]? = nil
 }
 
 enum EngineEvent {
@@ -52,6 +56,8 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         let task: URLSessionDataTask
         var isProbe: Bool
         var closing = false
+        /// Last byte asked for by this request (nil = until the end of the part / file).
+        var requestEnd: Int64?
 
         init(segmentID: Int, session: URLSession, task: URLSessionDataTask, isProbe: Bool) {
             self.segmentID = segmentID
@@ -200,16 +206,28 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: config.timeout)
         for (key, value) in config.headers { request.setValue(value, forHTTPHeaderField: key) }
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        var requestEnd: Int64?
         if probe {
-            request.setValue("bytes=0-", forHTTPHeaderField: "Range")
+            if let cap = config.maxRequestSize, cap > 0 {
+                requestEnd = cap - 1
+                request.setValue("bytes=0-\(cap - 1)", forHTTPHeaderField: "Range")
+            } else {
+                request.setValue("bytes=0-", forHTTPHeaderField: "Range")
+            }
         } else if seg.end >= 0 {
-            request.setValue("bytes=\(seg.current)-\(seg.end)", forHTTPHeaderField: "Range")
+            var last = seg.end
+            if let cap = config.maxRequestSize, cap > 0, last - seg.current + 1 > cap {
+                last = seg.current + cap - 1
+                requestEnd = last
+            }
+            request.setValue("bytes=\(seg.current)-\(last)", forHTTPHeaderField: "Range")
         } else if seg.current > 0 {
             request.setValue("bytes=\(seg.current)-", forHTTPHeaderField: "Range")
         }
         let session = makeSession()
         let task = session.dataTask(with: request)
         let connection = Connection(segmentID: segmentID, session: session, task: task, isProbe: probe)
+        connection.requestEnd = requestEnd
         connections[ObjectIdentifier(task)] = connection
         task.resume()
     }
@@ -540,6 +558,10 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         }
         if segments[idx].isComplete {
             fillConnections()
+        } else if let requestEnd = c.requestEnd, segments[idx].current > requestEnd {
+            // The capped request is done: continue this part with the next request.
+            failures[c.segmentID] = 0
+            launch(c.segmentID)
         } else {
             connectionFailed(c, message: String(localized: "The connection was closed before the part was complete"), fatal: false)
         }

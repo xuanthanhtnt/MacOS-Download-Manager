@@ -87,6 +87,9 @@ enum URLSchemeHandler {
 
 struct AppCommands: Commands {
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About MacOS Download Manager") { WindowManager.shared.showAbout() }
+        }
         CommandGroup(replacing: .appSettings) {
             Button("Options…") { WindowManager.shared.showOptions() }
                 .keyboardShortcut(",", modifiers: .command)
@@ -94,6 +97,8 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("Add URL…") { WindowManager.shared.showAddURL() }
                 .keyboardShortcut("n", modifiers: .command)
+            Button("Download Video from Web Page…") { WindowManager.shared.showAddURL(videoPage: true) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Add Batch Download…") { WindowManager.shared.showBatch() }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
             Button("Site Grabber…") { WindowManager.shared.showGrabber() }
@@ -123,6 +128,7 @@ struct AppCommands: Commands {
             DropTargetToggle()
         }
         CommandGroup(replacing: .help) {
+            Button("Report a Bug…") { AppInfo.reportBug() }
             Button("Install Browser Extension…") { WindowManager.shared.showOptions(tab: .browser) }
             Button("MacOS Download Manager on GitHub") {
                 if let url = URL(string: "https://github.com/xuanthanhtnt/MacOS-Download-Manager") { NSWorkspace.shared.open(url) }

@@ -79,6 +79,12 @@ async function post(path, payload) {
   }
 }
 
+/** Sends a web page that contains a video (YouTube, …) to the app's video downloader. */
+async function sendMediaPage(url, title) {
+  if (!/^https?:/i.test(url || "")) return false;
+  return post("/media", { url, title: title || "" });
+}
+
 async function sendDownload({ url, referrer, fileName, fileSize, mime }) {
   const cookies = await cookiesFor(url);
   return post("/download", {
@@ -239,6 +245,11 @@ function createMenus() {
       contexts: ["link", "image", "video", "audio"]
     }, ignore);
     api.contextMenus.create({
+      id: "mdm-video",
+      title: "Download video with MacOS Download Manager",
+      contexts: ["page", "link", "video"]
+    }, ignore);
+    api.contextMenus.create({
       id: "mdm-all",
       title: "Download all links with MacOS Download Manager",
       contexts: ["page", "selection"]
@@ -261,7 +272,11 @@ function collectLinks() {
 }
 
 api.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === "mdm-link") {
+  if (info.menuItemId === "mdm-video") {
+    // A link to a video page, or the current page itself.
+    const target = info.linkUrl || info.pageUrl || (tab && tab.url);
+    await sendMediaPage(target, info.linkUrl ? "" : tab && tab.title);
+  } else if (info.menuItemId === "mdm-link") {
     const url = info.linkUrl || info.srcUrl;
     if (url) await sendDownload({ url, referrer: info.pageUrl });
   } else if (info.menuItemId === "mdm-all" && tab?.id !== undefined) {
@@ -305,6 +320,8 @@ api.webRequest.onResponseStarted.addListener(
     if (!isMedia) return;
     // Skip tiny HLS/DASH fragments: keep playlists and whole files only.
     if (/\.(ts|m4s)(\?|$)/i.test(details.url) || /video\/mp2t|iso.segment/i.test(type)) return;
+    // YouTube & co. stream small pieces of separate video/audio: use "Download video from this page" instead.
+    if (/googlevideo\.com|\/videoplayback/i.test(details.url)) return;
     const lengthHeader = (details.responseHeaders || []).find((h) => h.name.toLowerCase() === "content-length");
     const size = lengthHeader ? parseInt(lengthHeader.value, 10) || 0 : 0;
     rememberMedia(details.tabId, { url: details.url, type, size, time: Date.now() });
@@ -339,6 +356,8 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.type === "lastEvent") {
       const data = await sessionStore.get({ lastEvent: null });
       sendResponse({ lastEvent: data.lastEvent });
+    } else if (message.type === "mediaPage") {
+      sendResponse({ ok: await sendMediaPage(message.url, message.title) });
     } else if (message.type === "download") {
       sendResponse({ ok: await sendDownload({ url: message.url, referrer: message.referrer }) });
     } else {

@@ -23,6 +23,7 @@ Native Swift / SwiftUI · Apple Silicon & Intel · macOS 13 Ventura trở lên</
 | Làm mới địa chỉ tải khi link hết hạn (Refresh download address) | ✅ Giữ phần đã tải, chỉ đổi link |
 | Bắt link tải từ trình duyệt | ✅ Tiện ích cho Chrome, Edge, Brave, Opera, Vivaldi, Arc, Firefox |
 | Menu chuột phải “Download with IDM” / “Download all links” | ✅ |
+| Tải video YouTube và các trang video (hình + tiếng tách riêng) | ✅ Nút **“Tải video từ trang này”** trong tiện ích, chọn chất lượng (tới 1080p MP4; 1440p/4K khi có ffmpeg), tải song song luồng hình & tiếng bằng engine đa kết nối rồi **ghép thành MP4** không cần mã hoá lại. Dùng [yt-dlp](https://github.com/yt-dlp/yt-dlp) + Deno (tự tải lần đầu) |
 | Bắt video trên trang web (Video grabber) | ✅ Phát hiện video/âm thanh & luồng **HLS (m3u8)**, tải song song, giải mã AES-128, ghép thành .ts/.mp4 |
 | Hộp thoại “Download File Info” (chọn tên, thư mục, thể loại, mô tả) | ✅ Có xem trước dung lượng, khả năng tải tiếp, chọn chất lượng HLS |
 | Cửa sổ tiến trình với biểu đồ các kết nối | ✅ Thanh phân đoạn + bảng từng kết nối |
@@ -65,6 +66,17 @@ MacOS Download Manager chạy một máy chủ nhỏ chỉ trên `127.0.0.1:9614
 
 Tiện ích có: tự bắt các tệp theo đuôi, menu chuột phải *Download with MacOS Download Manager* / *Download all links with MacOS Download Manager*, và nút trên thanh công cụ liệt kê video/âm thanh/HLS đang phát trên trang.
 
+## Tải video YouTube và các trang video
+
+1. Mở trang video trong trình duyệt → bấm biểu tượng tiện ích → **Download video from this page** (hoặc chuột phải → *Download video with MacOS Download Manager*). Có thể dán link vào **Thêm URL** — link YouTube, Facebook, TikTok… được nhận ra tự động.
+2. Lần đầu, app hỏi tải hai thành phần mã nguồn mở **yt-dlp** và **Deno** (~100 MB, tải từ GitHub chính thức, kiểm tra SHA-256).
+3. Chọn chất lượng → **Bắt đầu tải**. Luồng hình và luồng tiếng được tải song song nhiều kết nối, sau đó ghép thành một file MP4.
+
+- Chất lượng tới 1080p (H.264) được macOS tự ghép. Muốn 1440p/4K (VP9/AV1): cài ffmpeg bằng Homebrew `brew install ffmpeg`.
+- Video cần đăng nhập/giới hạn tuổi: **Tùy chọn → Video → Dùng cookie của** → chọn trình duyệt bạn đang đăng nhập.
+- Trang nào tải không được nữa: **Tùy chọn → Video → Cập nhật yt-dlp**.
+- Không hỗ trợ nội dung có DRM (Netflix, Spotify…) và video đang phát trực tiếp.
+
 ## Tự build từ mã nguồn
 
 Cần macOS 13+ và Xcode 15+ (hoặc Command Line Tools có Swift 5.9+).
@@ -105,9 +117,15 @@ Dữ liệu được lưu tại `~/Library/Application Support/MacOS Download Ma
 
 ---
 
+## Nhà phát triển
+
+Phát triển bởi **xuanthanhtnt**. Gặp lỗi hoặc muốn góp ý: dùng menu **Help → Báo lỗi…** trong app (mở sẵn mẫu báo lỗi kèm phiên bản app/macOS) hoặc tạo [GitHub Issue](https://github.com/xuanthanhtnt/MacOS-Download-Manager/issues/new).
+
 ## English
 
 **MacOS Download Manager** is a native macOS download accelerator inspired by Internet Download Manager: multi-connection downloads with dynamic segmentation, pause/resume, browser integration (Chromium & Firefox extension), video/HLS grabber, queues and scheduler, speed limiter, clipboard monitoring, drop target, batch downloads, site grabber, IDM `.ef2` import/export, site logins, proxy, checksum verification and an English/Vietnamese UI.
+
+It also downloads videos from YouTube and other sites (separate video and audio streams downloaded with multiple connections and joined into MP4), using yt-dlp and Deno, which it installs on first use. Developed by **xuanthanhtnt** — report bugs via Help → Report a Bug… or [GitHub Issues](https://github.com/xuanthanhtnt/MacOS-Download-Manager/issues).
 
 Download the `.dmg` from [Releases](https://github.com/xuanthanhtnt/MacOS-Download-Manager/releases/latest), drag MacOS Download Manager to Applications and run `xattr -cr "/Applications/MacOS Download Manager.app"` once (the app is ad-hoc signed, not notarized). Build it yourself with `./scripts/build_app.sh`.
 

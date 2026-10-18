@@ -42,3 +42,6 @@ button.secondary { background: transparent; color: var(--accent); border: 1px so
 footer { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
 footer a { color: var(--accent); text-decoration: none; }
 input[type="number"], textarea { width: 100%; font: inherit; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+button.wide { width: 100%; padding: 8px 10px; font-weight: 600; }
+.small { font-size: 11px; }
+section.video { border-bottom: 1px solid var(--line); }

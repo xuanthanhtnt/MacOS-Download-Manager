@@ -111,7 +111,9 @@ struct DownloadProgressView: View {
 
             if showDetails {
                 Divider()
-                if item.kind == .hls {
+                if item.kind == .media {
+                    MediaPartsView(item: item)
+                } else if item.kind == .hls {
                     HLSPartsBar(item: item)
                         .frame(height: 14)
                     Text(verbatim: String(format: NSLocalizedString("%d of %d parts downloaded", comment: ""),
@@ -263,5 +265,52 @@ struct CompletedView: View {
         }
         .padding(20)
         .frame(width: 520)
+    }
+}
+
+/// Video and audio streams of a video-page download.
+private struct MediaPartsView: View {
+    let item: DownloadItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if item.mediaParts.isEmpty {
+                Text("Reading the video page…").foregroundStyle(.secondary).font(.caption)
+            }
+            ForEach(Array(item.mediaParts.enumerated()), id: \.offset) { index, part in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Image(systemName: index == 0 && item.mediaParts.count > 1 ? "film" : (item.mediaParts.count > 1 ? "waveform" : "doc"))
+                            .foregroundStyle(.secondary)
+                        Text(verbatim: label(index))
+                        Spacer()
+                        Text(verbatim: part.done
+                             ? String(localized: "Complete")
+                             : "\(Fmt.bytes(part.downloadedBytes)) / \(part.totalBytes > 0 ? Fmt.bytes(part.totalBytes) : "?")")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                    ProgressView(value: progress(part))
+                        .tint(part.done ? .green : .accentColor)
+                }
+            }
+            if item.status == .assembling {
+                Label("Joining video and audio…", systemImage: "square.stack.3d.down.forward")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func label(_ index: Int) -> String {
+        guard item.mediaParts.count > 1 else { return String(localized: "Stream") }
+        return index == 0 ? String(localized: "Video stream") : String(localized: "Audio stream")
+    }
+
+    private func progress(_ part: MediaPartState) -> Double {
+        if part.done { return 1 }
+        guard part.totalBytes > 0 else { return 0 }
+        return min(1, Double(part.downloadedBytes) / Double(part.totalBytes))
     }
 }

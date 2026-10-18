@@ -8,3 +8,4 @@ DerivedData/
 *.dmg
 Tests/extension/node_modules/
 Tests/extension/package-lock.json
+scripts/__pycache__/

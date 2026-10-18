@@ -75,6 +75,6 @@
 	<key>NSAppleEventsUsageDescription</key>
 	<string>MacOS Download Manager asks System Events to shut down the Mac when a download queue finishes, if you choose that option.</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>© 2026 MacOS Download Manager contributors. MIT License.</string>
+	<string>© 2026 xuanthanhtnt. MIT License.</string>
 </dict>
 </plist>

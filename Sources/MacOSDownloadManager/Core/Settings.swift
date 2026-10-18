@@ -110,6 +110,12 @@ struct AppSettingsData: Codable, Equatable {
     // Site logins (passwords live in the Keychain)
     var siteLogins: [SiteLogin] = []
 
+    // Video downloads (yt-dlp)
+    /// Browser whose cookies yt-dlp may use ("" = none): safari, chrome, brave, edge, firefox, opera, vivaldi.
+    var mediaCookiesBrowser: String = ""
+    /// Preferred maximum video height (0 = best available).
+    var mediaMaxHeight: Int = 0
+
     static let defaultUserAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 

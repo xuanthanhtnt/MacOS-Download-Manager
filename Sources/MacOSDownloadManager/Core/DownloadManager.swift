@@ -105,6 +105,8 @@ final class DownloadManager: ObservableObject {
             case .links(let urls, let referer):
                 let requests = urls.map { CaptureRequest(url: $0, referer: referer) }
                 WindowManager.shared.showLinks(requests)
+            case .media(let url, let title):
+                self.handleMediaPage(url, title: title)
             }
         }
         ClipboardMonitor.shared.shouldCapture = { [weak self] url in
@@ -203,11 +205,24 @@ final class DownloadManager: ObservableObject {
         if let last = recentCaptures[key], Date().timeIntervalSince(last) < 5 { return }
         recentCaptures[key] = Date()
         recentCaptures = recentCaptures.filter { Date().timeIntervalSince($0.value) < 60 }
+        // Web pages with a video (YouTube, …) open the video download window.
+        if MediaSites.isVideoPage(request.url) {
+            WindowManager.shared.showMediaInfo(request.url)
+            return
+        }
         if settings.data.showFileInfoDialog || forceDialog {
             WindowManager.shared.showFileInfo(request)
         } else {
             quickAdd(request, start: true, queueID: nil)
         }
+    }
+
+    /// A web page with a video (YouTube, …): shows the video download window.
+    func handleMediaPage(_ url: URL, title: String? = nil) {
+        let key = "media:" + url.absoluteString
+        if let last = recentCaptures[key], Date().timeIntervalSince(last) < 5 { return }
+        recentCaptures[key] = Date()
+        WindowManager.shared.showMediaInfo(url)
     }
 
     /// Adds a download without showing a dialog, deriving name, category and folder automatically.
@@ -277,9 +292,9 @@ final class DownloadManager: ObservableObject {
         }
 
         if let temp = item.tempPath {
-            let exists = item.kind == .hls
-                ? fm.fileExists(atPath: temp + ".parts")
-                : fm.fileExists(atPath: temp)
+            // Video pages keep their streams in separate files; the media engine checks them itself.
+            let exists = item.kind == .media
+                || (item.kind == .hls ? fm.fileExists(atPath: temp + ".parts") : fm.fileExists(atPath: temp))
             if !exists { resetProgress(&item) }
             if item.kind == .http && !item.resumable && item.downloadedBytes > 0 { resetProgress(&item) }
         } else {
@@ -310,6 +325,10 @@ final class DownloadManager: ObservableObject {
         let engine: DownloadEngine
         if item.kind == .hls {
             engine = HLSDownloadEngine(item: item, tempPath: tempPath, config: config)
+        } else if item.kind == .media {
+            engine = MediaDownloadEngine(item: item, tempPath: tempPath, config: config,
+                                         cookiesBrowser: settings.data.mediaCookiesBrowser,
+                                         maxHeight: settings.data.mediaMaxHeight)
         } else {
             engine = HTTPDownloadEngine(item: item, tempPath: tempPath, config: config)
         }
@@ -338,6 +357,7 @@ final class DownloadManager: ObservableObject {
         item.downloadedBytes = 0
         item.hlsDoneSegments = []
         item.hlsSegmentCount = 0
+        item.mediaParts = []
         if item.kind == .http, item.resumable == false { item.resumable = true }
     }
 
@@ -483,6 +503,7 @@ final class DownloadManager: ObservableObject {
         items[i].resumable = p.resumable
         if let done = p.hlsDone { items[i].hlsDoneSegments = done }
         if let count = p.hlsCount { items[i].hlsSegmentCount = count }
+        if let parts = p.mediaParts { items[i].mediaParts = parts }
     }
 
     private func finalize(_ id: UUID, preferredExtension: String?) {
@@ -569,15 +590,24 @@ final class DownloadManager: ObservableObject {
         }
         if !tempPaths.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                for temp in tempPaths {
-                    try? FileManager.default.removeItem(atPath: temp)
-                    try? FileManager.default.removeItem(atPath: temp + ".parts")
-                }
+                for temp in tempPaths { DownloadManager.removeTemporaryFiles(temp) }
             }
         }
         saveNow()
         updateActivity()
         processQueues()
+    }
+
+    /// Removes an unfinished download's data: the temp file, HLS parts and video/audio stream files.
+    static func removeTemporaryFiles(_ temp: String) {
+        let fm = FileManager.default
+        try? fm.removeItem(atPath: temp)
+        try? fm.removeItem(atPath: temp + ".parts")
+        let dir = (temp as NSString).deletingLastPathComponent
+        let prefix = (temp as NSString).lastPathComponent + "."
+        for name in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where name.hasPrefix(prefix) {
+            try? fm.removeItem(atPath: (dir as NSString).appendingPathComponent(name))
+        }
     }
 
     func deleteCompleted() {
@@ -587,16 +617,14 @@ final class DownloadManager: ObservableObject {
 
     func redownload(_ id: UUID) {
         guard let i = index(of: id), engines[id] == nil else { return }
-        if let temp = items[i].tempPath {
-            try? FileManager.default.removeItem(atPath: temp)
-            try? FileManager.default.removeItem(atPath: temp + ".parts")
-        }
+        if let temp = items[i].tempPath { DownloadManager.removeTemporaryFiles(temp) }
         items[i].tempPath = nil
         items[i].segments = []
         items[i].downloadedBytes = 0
         items[i].totalBytes = -1
         items[i].hlsDoneSegments = []
         items[i].hlsSegmentCount = 0
+        items[i].mediaParts = []
         items[i].status = .queued
         items[i].dateCompleted = nil
         items[i].errorMessage = nil

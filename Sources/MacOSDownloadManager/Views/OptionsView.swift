@@ -3,7 +3,7 @@ import AppKit
 import ServiceManagement
 
 enum OptionsTab: String, CaseIterable, Identifiable {
-    case general, connection, saveTo, fileTypes, proxy, logins, browser, afterDownload
+    case general, connection, saveTo, fileTypes, proxy, logins, browser, video, afterDownload
 
     var id: String { rawValue }
 }
@@ -39,12 +39,15 @@ struct OptionsView: View {
             BrowserOptions()
                 .tabItem { Label("Browser", systemImage: "safari") }
                 .tag(OptionsTab.browser)
+            VideoOptions()
+                .tabItem { Label("Video", systemImage: "play.rectangle") }
+                .tag(OptionsTab.video)
             AfterDownloadOptions()
                 .tabItem { Label("Notifications", systemImage: "bell") }
                 .tag(OptionsTab.afterDownload)
         }
         .padding(14)
-        .frame(width: 720, height: 520)
+        .frame(width: 780, height: 540)
         .onReceive(NotificationCenter.default.publisher(for: .turboSelectOptionsTab)) { note in
             if let t = note.object as? OptionsTab { tab = t }
         }
@@ -471,6 +474,72 @@ enum BrowserExtensionInstaller {
         try? fm.removeItem(at: target)
         try? fm.copyItem(at: source, to: target)
         NSWorkspace.shared.activateFileViewerSelecting([target.appendingPathComponent("chrome")])
+    }
+}
+
+// MARK: - Video downloads
+
+private struct VideoOptions: View {
+    @EnvironmentObject var settings: SettingsStore
+    @ObservedObject private var tools = MediaTools.shared
+
+    private let heights = [0, 2160, 1440, 1080, 720, 480, 360]
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("yt-dlp") {
+                    Text(verbatim: tools.ytdlpVersion ?? String(localized: "Not installed"))
+                        .foregroundStyle(tools.ytdlpVersion == nil ? Color.orange : Color.secondary)
+                }
+                LabeledContent("Deno") {
+                    Text(verbatim: tools.denoVersion ?? String(localized: "Not installed"))
+                        .foregroundStyle(tools.denoVersion == nil ? Color.orange : Color.secondary)
+                }
+                LabeledContent("FFmpeg") {
+                    Text(verbatim: tools.ffmpegPath ?? String(localized: "Not found (optional: brew install ffmpeg)"))
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    if tools.installing {
+                        ProgressView().controlSize(.small)
+                        Text(verbatim: tools.installStatus).foregroundStyle(.secondary)
+                    } else if tools.isInstalled {
+                        Button("Update yt-dlp") { Task { try? await tools.updateYtdlp() } }
+                        Button("Download Components Again") { Task { try? await tools.install() } }
+                    } else {
+                        Button("Download Components") { Task { try? await tools.install() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                if let error = tools.lastError {
+                    Text(verbatim: error).font(.caption).foregroundStyle(.red)
+                }
+            } header: {
+                Text("Components")
+            } footer: {
+                Text("yt-dlp reads video pages (YouTube and many other sites) and Deno is the JavaScript runtime it needs for YouTube. Both are free, open source and downloaded from their official GitHub releases. Update yt-dlp when a site stops working.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Preferences") {
+                Picker("Preferred maximum quality", selection: $settings.data.mediaMaxHeight) {
+                    ForEach(heights, id: \.self) { h in
+                        Text(verbatim: h == 0 ? String(localized: "Best available") : "\(h)p").tag(h)
+                    }
+                }
+                Picker("Use cookies from", selection: $settings.data.mediaCookiesBrowser) {
+                    ForEach(CookieBrowser.all, id: \.id) { b in
+                        Text(verbatim: b.title).tag(b.id)
+                    }
+                }
+                Text("Cookies let yt-dlp open videos that need you to be signed in. macOS may ask for permission to read the browser's data; Safari needs Full Disk Access.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { tools.refreshStatus() }
     }
 }
 

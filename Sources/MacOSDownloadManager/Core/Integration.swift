@@ -13,6 +13,8 @@ final class BrowserBridgeServer {
     enum Message {
         case download(CaptureRequest)
         case links([URL], referer: String?)
+        /// A page with a video to download (YouTube, …).
+        case media(URL, title: String?)
     }
 
     var onMessage: ((Message) -> Void)?
@@ -156,6 +158,9 @@ final class BrowserBridgeServer {
                     message = m
                 } else if request.path.hasPrefix("/links"), let m = linksMessage(json) {
                     message = m
+                } else if request.path.hasPrefix("/media"), let s = json["url"] as? String, let url = URL(string: s),
+                          ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    message = .media(url, title: json["title"] as? String)
                 } else {
                     status = "400 Bad Request"
                     body = ["ok": false, "error": "invalid request"]

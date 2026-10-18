@@ -8,9 +8,11 @@ struct AddURLView: View {
     @State private var useAuth = false
     @State private var user = ""
     @State private var password = ""
+    @State private var videoPage: Bool
 
-    init(initialText: String) {
+    init(initialText: String, videoPage: Bool = false) {
         _text = State(initialValue: initialText)
+        _videoPage = State(initialValue: videoPage)
     }
 
     private var urls: [URL] {
@@ -35,6 +37,7 @@ struct AddURLView: View {
                 .font(.system(.body, design: .monospaced))
                 .frame(height: 70)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.15)))
+            Toggle("This is a web page with a video (YouTube, Facebook, TikTok…)", isOn: $videoPage)
             Toggle("Use authorization", isOn: $useAuth)
             if useAuth {
                 HStack {
@@ -60,6 +63,11 @@ struct AddURLView: View {
         let list = urls
         guard !list.isEmpty else { return }
         WindowManager.shared.close("addurl")
+        let pages = list.filter { videoPage || MediaSites.isVideoPage($0) }
+        if !pages.isEmpty {
+            for page in pages { DownloadManager.shared.handleMediaPage(page) }
+            if pages.count == list.count { return }
+        }
         let requests = list.map { url -> CaptureRequest in
             var r = CaptureRequest(url: url)
             if useAuth && !user.isEmpty {
@@ -68,10 +76,11 @@ struct AddURLView: View {
             }
             return r
         }
-        if requests.count == 1 {
-            DownloadManager.shared.handleCapture(requests[0], forceDialog: true)
-        } else {
-            WindowManager.shared.showLinks(requests)
+        let files = requests.filter { r in !pages.contains(r.url) }
+        if files.count == 1 {
+            DownloadManager.shared.handleCapture(files[0], forceDialog: true)
+        } else if files.count > 1 {
+            WindowManager.shared.showLinks(files)
         }
     }
 }

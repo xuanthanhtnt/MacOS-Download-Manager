@@ -78,14 +78,14 @@ final class WindowManager {
         }
     }
 
-    func showAddURL(prefill: String? = nil) {
+    func showAddURL(prefill: String? = nil, videoPage: Bool = false) {
         var text = prefill ?? ""
         if text.isEmpty, let clip = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
            let url = URL(string: clip), let scheme = url.scheme?.lowercased(), ["http", "https", "ftp"].contains(scheme) {
             text = clip
         }
         present(key: "addurl", title: String(localized: "Add URL"), floating: true) {
-            AddURLView(initialText: text)
+            AddURLView(initialText: text, videoPage: videoPage)
         }
     }
 
@@ -161,6 +161,19 @@ final class WindowManager {
     func showRefreshAddress(_ id: UUID) {
         present(key: "refresh-\(id.uuidString)", title: String(localized: "Refresh Download Address")) {
             RefreshAddressView(id: id)
+        }
+    }
+
+    func showMediaInfo(_ url: URL) {
+        let key = "media-\(UUID().uuidString)"
+        present(key: key, title: String(localized: "Download Video"), floating: true) {
+            MediaInfoView(pageURL: url, windowKey: key)
+        }
+    }
+
+    func showAbout() {
+        present(key: "about", title: String(localized: "About MacOS Download Manager")) {
+            AboutView()
         }
     }
 

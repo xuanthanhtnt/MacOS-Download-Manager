@@ -58,6 +58,16 @@ async function init() {
 
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
+
+  const videoButton = document.getElementById("video");
+  if (!/^https?:/i.test(tab.url || "")) {
+    videoButton.disabled = true;
+  }
+  videoButton.addEventListener("click", async () => {
+    videoButton.disabled = true;
+    const res = await send({ type: "mediaPage", url: tab.url, title: tab.title });
+    videoButton.textContent = res.ok ? "Sent ✓ – choose the quality in the app" : "MacOS Download Manager is not running";
+  });
   const { media = [] } = await send({ type: "media", tabId: tab.id });
   const list = document.getElementById("media");
   document.getElementById("empty").style.display = media.length ? "none" : "block";

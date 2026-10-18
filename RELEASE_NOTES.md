@@ -1,5 +1,11 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.0
+- **Tải video YouTube và nhiều trang video khác** (Facebook, TikTok, Vimeo, X…): chọn chất lượng, luồng hình và luồng tiếng tải song song bằng nhiều kết nối rồi ghép thành MP4 (tới 1080p; 1440p/4K khi có ffmpeg). Lần đầu dùng, app tự tải yt-dlp + Deno từ GitHub chính thức.
+- Tiện ích trình duyệt: nút **“Download video from this page”** và menu chuột phải **“Download video with MacOS Download Manager”**.
+- Cửa sổ **Giới thiệu** (nhà phát triển: xuanthanhtnt) và nút **Báo lỗi** (Help → Báo lỗi…).
+- **Cần cập nhật tiện ích:** chép thư mục tiện ích mới trong file .dmg đè lên thư mục cũ rồi bấm ↻ (Reload) trong `brave://extensions`.
+
 ### Có gì mới ở 1.0.4
 - Sửa dứt điểm lỗi trình duyệt và MacOS Download Manager cùng tải một tệp: khi app đã nhận link nhưng câu trả lời không về tới tiện ích (thường gặp trên Brave), tiện ích kiểm tra lại app và vẫn dừng bản tải của trình duyệt.
 - Máy chủ tích hợp trình duyệt hỗ trợ CORS / Private Network Access và đóng kết nối an toàn hơn.

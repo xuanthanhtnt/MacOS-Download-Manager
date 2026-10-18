@@ -31,6 +31,7 @@ function check(condition, message) {
 let appRunning = false;
 let dropAnswers = false; // simulate an answer that never reaches the browser
 const received = [];
+const mediaReceived = [];
 const bridge = http.createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
@@ -41,6 +42,10 @@ const bridge = http.createServer((req, res) => {
     }
     res.setHeader("Content-Type", "application/json");
     if (req.url.startsWith("/ping")) return res.end('{"ok":true,"app":"MacOS Download Manager"}');
+    if (req.url.startsWith("/media")) {
+      try { mediaReceived.push(JSON.parse(body)); } catch (e) { mediaReceived.push({ invalid: body }); }
+      return res.end('{"ok":true}');
+    }
     if (req.url.startsWith("/download")) {
       try { received.push(JSON.parse(body)); } catch (e) { received.push({ invalid: body }); }
       if (dropAnswers) return req.socket.destroy();
@@ -122,6 +127,12 @@ try {
   check(received.length === 1 && String(received[0].url).endsWith("/files/big.iso"),
         `redirected link sent to the app (received: ${JSON.stringify(received.map((r) => r.url))})`);
   check(files().length === 0, `browser did not download the redirected file too (files: ${JSON.stringify(files())})`);
+
+  // 5. "Download video from this page" sends the page to the app's video downloader.
+  const sw = await worker.worker();
+  const sent = await sw.evaluate(() => sendMediaPage("https://www.youtube.com/watch?v=BaW_jenozKc", "Test video"));
+  check(sent === true && mediaReceived.length === 1 && mediaReceived[0].url.includes("BaW_jenozKc"),
+        `video page sent to the app (received: ${JSON.stringify(mediaReceived)})`);
 
   // 4. The app got the link but its answer was lost: the browser must still stop its own copy.
   clear();

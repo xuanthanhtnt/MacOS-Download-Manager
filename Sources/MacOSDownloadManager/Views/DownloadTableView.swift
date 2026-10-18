@@ -85,6 +85,13 @@ private struct FileNameCell: View {
             Text(verbatim: item.fileName)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            if item.kind == .media {
+                Text(verbatim: "VIDEO")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.red.opacity(0.18)))
+            }
             if item.kind == .hls {
                 Text(verbatim: "HLS")
                     .font(.system(size: 9, weight: .bold))

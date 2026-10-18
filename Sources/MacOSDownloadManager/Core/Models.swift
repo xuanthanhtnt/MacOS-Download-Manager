@@ -31,6 +31,18 @@ enum DownloadStatus: String, Codable, CaseIterable {
 enum DownloadKind: String, Codable {
     case http
     case hls
+    /// A video/audio page (YouTube, …) resolved with yt-dlp; video and audio may be separate streams.
+    case media
+}
+
+/// Progress of one stream (video or audio) of a `.media` download.
+struct MediaPartState: Codable, Equatable {
+    var formatID: String
+    var ext: String = ""
+    var totalBytes: Int64 = -1
+    var downloadedBytes: Int64 = 0
+    var segments: [Segment] = []
+    var done: Bool = false
 }
 
 // MARK: - Segment (one byte range downloaded by one connection)
@@ -89,6 +101,9 @@ struct DownloadItem: Codable, Identifiable, Equatable {
     var hlsSegmentCount: Int = 0
     /// True when the file name was derived automatically and may be replaced by the server-provided name.
     var autoName: Bool = true
+    /// yt-dlp format selection for `.media` downloads, e.g. "137+140".
+    var mediaFormat: String? = nil
+    var mediaParts: [MediaPartState] = []
 
     var filePath: String {
         (directory as NSString).appendingPathComponent(fileName)
