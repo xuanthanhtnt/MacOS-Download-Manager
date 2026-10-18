@@ -209,10 +209,30 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(lastParts.count, 2)
         XCTAssertTrue(lastParts.allSatisfy(\.done))
 
-        let asset = AVURLAsset(url: URL(fileURLWithPath: temp))
-        XCTAssertEqual(asset.tracks(withMediaType: .video).count, 1)
-        XCTAssertEqual(asset.tracks(withMediaType: .audio).count, 1)
-        XCTAssertEqual(asset.duration.seconds, 3, accuracy: 0.4)
+        // The app renames the finished file to its real name (.mp4); do the same before opening it.
+        let movie = URL(fileURLWithPath: (workDir as NSString).appendingPathComponent("check.mp4"))
+        try FileManager.default.moveItem(at: URL(fileURLWithPath: temp), to: movie)
+        let counts = try waitForTrackCounts(movie)
+        XCTAssertEqual(counts.video, 1)
+        XCTAssertEqual(counts.audio, 1)
+        XCTAssertEqual(counts.duration, 3, accuracy: 0.4)
+    }
+
+    private final class CountsBox {
+        var counts: (video: Int, audio: Int, duration: Double)?
+        var error: Error?
+    }
+
+    private func waitForTrackCounts(_ url: URL) throws -> (video: Int, audio: Int, duration: Double) {
+        let box = CountsBox()
+        let loaded = expectation(description: "tracks loaded")
+        Task {
+            do { box.counts = try await self.trackCounts(url) } catch { box.error = error }
+            loaded.fulfill()
+        }
+        wait(for: [loaded], timeout: 30)
+        if let error = box.error { throw error }
+        return try XCTUnwrap(box.counts)
     }
 
     func testChunkedRequestsDownloadCorrectly() throws {
@@ -258,7 +278,7 @@ final class MediaTests: XCTestCase {
         let version = try await MediaTools.runProcess(tools.ytdlpPath, ["--version"]).stdout
         print("MDM-NOTE yt-dlp \(version.trimmingCharacters(in: .whitespacesAndNewlines))")
 
-        let page = URL(string: "https://www.youtube.com/watch?v=BaW_jenozKc")!
+        let page = URL(string: "https://www.youtube.com/watch?v=jNQXAC9IVRw")!
         let info: YTDLInfo
         do {
             info = try await tools.extract(url: page, cookiesBrowser: "")
