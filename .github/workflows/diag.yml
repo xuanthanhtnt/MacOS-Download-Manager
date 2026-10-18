@@ -1,0 +1,52 @@
+name: Diagnose DASH joining
+on:
+  push:
+    branches: ["diag/**"]
+jobs:
+  diag:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          brew install ffmpeg deno >/dev/null 2>&1 || true
+          which ffmpeg deno
+          curl -sSL -o ytdlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos && chmod +x ytdlp && ./ytdlp --version
+      - name: Make files
+        run: |
+          mkdir -p f && cd f
+          ffmpeg -v error -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i sine=frequency=440 -t 12 -c:v libx264 -g 30 -pix_fmt yuv420p -c:a aac src.mp4
+          ffmpeg -v error -i src.mp4 -an -c copy plain_v.mp4
+          ffmpeg -v error -i src.mp4 -vn -c copy plain_a.m4a
+          ffmpeg -v error -i src.mp4 -an -c copy -movflags +frag_keyframe+empty_moov+default_base_moof frag_v.mp4
+          ffmpeg -v error -i src.mp4 -vn -c copy -movflags +frag_keyframe+empty_moov+default_base_moof frag_a.m4a
+          ffmpeg -v error -i src.mp4 -an -c copy -movflags +frag_keyframe+empty_moov+default_base_moof+global_sidx+dash fragsidx_v.mp4 || true
+          mkdir -p dv da
+          ffmpeg -v error -i src.mp4 -map 0:v -c copy -f dash -single_file 1 dv/m.mpd || true
+          ffmpeg -v error -i src.mp4 -map 0:a -c copy -f dash -single_file 1 da/m.mpd || true
+          ls -la dv da
+          cp dv/*stream0*.mp4 dash_v.mp4 2>/dev/null || cp "$(ls dv/*.m4s dv/*.mp4 2>/dev/null | head -1)" dash_v.mp4 || true
+          cp da/*stream0*.mp4 dash_a.m4a 2>/dev/null || cp "$(ls da/*.m4s da/*.mp4 2>/dev/null | head -1)" dash_a.m4a || true
+          for x in frag_v.mp4 dash_v.mp4; do [ -f $x ] && cp $x brand_$x && printf 'dash' | dd of=brand_$x bs=1 seek=8 conv=notrunc 2>/dev/null; done
+          for x in frag_a.m4a dash_a.m4a; do [ -f $x ] && cp $x brand_$x && printf 'dash' | dd of=brand_$x bs=1 seek=8 conv=notrunc 2>/dev/null; done
+          ls -la
+      - name: Real YouTube streams
+        continue-on-error: true
+        run: |
+          cd f
+          for fmt in 140 160 133 134; do
+            ../ytdlp --no-warnings --js-runtimes deno -f $fmt -o "yt_$fmt.%(ext)s" "https://www.youtube.com/watch?v=BaW_jenozKc" 2>&1 | tail -3 | sed "s/^/::notice title=yt-dlp $fmt::/"
+          done
+          ls -la yt_* || true
+      - name: Probe
+        run: |
+          cd f
+          swiftc -O ../diag/probe.swift -o probe
+          python3 ../diag/boxes.py $(ls *.mp4 *.m4a | grep -v src) | sed 's/^/::notice title=Boxes::/'
+          ./probe $(ls *.mp4 *.m4a) | sed 's/^/::notice title=AVFoundation::/'
+          ./probe merge frag_v.mp4 frag_a.m4a m1.mp4 | sed 's/^/::notice title=Merge::/'
+          [ -f dash_v.mp4 ] && ./probe merge dash_v.mp4 dash_a.m4a m2.mp4 | sed 's/^/::notice title=Merge::/'
+          [ -f brand_dash_v.mp4 ] && ./probe merge brand_dash_v.mp4 brand_dash_a.m4a m3.mp4 | sed 's/^/::notice title=Merge::/'
+          V=$(ls yt_160.* yt_133.* yt_134.* 2>/dev/null | head -1); A=$(ls yt_140.* 2>/dev/null | head -1)
+          [ -n "$V" ] && [ -n "$A" ] && ./probe merge "$V" "$A" m4.mp4 | sed 's/^/::notice title=Merge YouTube::/'
+          true
