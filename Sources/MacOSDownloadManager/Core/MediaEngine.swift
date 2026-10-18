@@ -342,11 +342,12 @@ final class MediaDownloadEngine: DownloadEngine {
         onEvent?(.assembling)
         let paths = parts.indices.map { URL(fileURLWithPath: partPath($0)) }
         let output = URL(fileURLWithPath: tempPath)
-        let method = option?.merge ?? .avfoundation
         let ext = option?.ext ?? Self.outputExtension(item.fileName)
+        let vcodec = (partFormats.first?.vcodec ?? "").lowercased()
+        let hevc = vcodec.hasPrefix("hvc1") || vcodec.hasPrefix("hev1")
         Task.detached { [weak self] in
             do {
-                try await Self.join(paths, into: output, ext: ext, method: method)
+                try await Self.join(paths, into: output, ext: ext, hevc: hevc)
                 await MainActor.run { self?.complete(ext) }
             } catch {
                 let message = error.localizedDescription
@@ -364,7 +365,10 @@ final class MediaDownloadEngine: DownloadEngine {
     }
 
     /// Joins the downloaded streams (or fixes a single one) into `output`, removing the parts afterwards.
-    static func join(_ paths: [URL], into output: URL, ext: String, method: MergeMethod) async throws {
+    ///
+    /// ffmpeg (downloaded by the app) joins first: it is what yt-dlp itself uses for YouTube and it
+    /// accepts every container. macOS (AVFoundation) is used when ffmpeg is missing or fails.
+    static func join(_ paths: [URL], into output: URL, ext: String, hevc: Bool = false) async throws {
         let fm = FileManager.default
         let containers = paths.map(MediaMuxer.sniff)
         let temp = URL(fileURLWithPath: output.path + ".join." + ext)
@@ -387,24 +391,29 @@ final class MediaDownloadEngine: DownloadEngine {
             return
         }
 
-        // macOS joins plain MP4/M4A streams; ffmpeg everything else, and anything macOS refuses.
-        let macOSCanOpen = containers.allSatisfy { $0 == .mp4 }
+        var problems: [String] = []
         var joined = false
-        var macOSError: Error?
-        if method != .ffmpeg && macOSCanOpen {
+        if let ffmpeg = await MediaTools.shared.ensureFFmpeg() {
+            do {
+                try await MediaMuxer.mergeWithFFmpeg(ffmpeg, video: paths[0], audio: paths[1], output: temp, hevc: hevc)
+                joined = true
+            } catch {
+                problems.append("ffmpeg: " + error.localizedDescription)
+            }
+        } else {
+            problems.append("ffmpeg: " + (MediaTools.shared.lastError ?? String(localized: "could not be downloaded")))
+        }
+        if !joined && containers.allSatisfy({ $0 == .mp4 }) {
             do {
                 try await MediaMuxer.mergeWithAVFoundation(video: paths[0], audio: paths[1], output: temp)
                 joined = true
             } catch {
-                macOSError = error
+                problems.append("macOS: " + error.localizedDescription)
             }
         }
-        if !joined {
-            guard let ffmpeg = await MediaTools.shared.ensureFFmpeg() else {
-                if let macOSError { throw macOSError }
-                throw MediaError.message(String(localized: "These streams need ffmpeg to be joined, and it could not be downloaded. Check the connection and click Resume."))
-            }
-            try await MediaMuxer.mergeWithFFmpeg(ffmpeg, video: paths[0], audio: paths[1], output: temp)
+        guard joined else {
+            let kinds = zip(["video", "audio"], containers).map { "\($0)=\($1)" }.joined(separator: ", ")
+            throw MediaError.message(String(localized: "Could not join video and audio") + " (\(kinds))\n" + problems.joined(separator: "\n"))
         }
         try? fm.removeItem(at: output)
         try fm.moveItem(at: temp, to: output)

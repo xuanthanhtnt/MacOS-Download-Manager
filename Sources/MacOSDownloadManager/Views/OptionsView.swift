@@ -430,7 +430,7 @@ private struct BrowserOptions: View {
                     }
                 }
                 if extensionStatus.isOutdated {
-                    Text("The extension in your browser is older than the app. Click “Show Extension Folder in Finder”, then in the browser's extensions page remove the old MacOS Download Manager extension and load the new folder (Load unpacked). Reload the open YouTube tabs afterwards.")
+                    Text("The extension in your browser is older than the one in this app. If it was loaded from the folder that “Show Extension Folder in Finder” opens, click ↻ (Reload) on it in the browser's extensions page – from version 1.1.4 on it updates itself. Otherwise remove the old MacOS Download Manager extension and load that folder (Load unpacked). Reload the open YouTube tabs afterwards.")
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)

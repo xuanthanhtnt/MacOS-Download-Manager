@@ -39,6 +39,7 @@ function check(condition, message) {
 // Fake MacOS Download Manager bridge
 let appRunning = false;
 let dropAnswers = false; // simulate an answer that never reaches the browser
+let shippedExtension = null; // extension version the fake app says it ships (in /ping answers)
 const received = [];
 const mediaReceived = [];
 const requestPaths = [];
@@ -52,7 +53,9 @@ const bridge = http.createServer((req, res) => {
       return res.end();
     }
     res.setHeader("Content-Type", "application/json");
-    if (req.url.startsWith("/ping")) return res.end('{"ok":true,"app":"MacOS Download Manager"}');
+    if (req.url.startsWith("/ping")) {
+      return res.end(JSON.stringify({ ok: true, app: "MacOS Download Manager", ...(shippedExtension ? { extension: shippedExtension } : {}) }));
+    }
     if (req.url.startsWith("/media")) {
       try { mediaReceived.push(JSON.parse(body)); } catch (e) { mediaReceived.push({ invalid: body }); }
       return res.end('{"ok":true}');
@@ -176,6 +179,35 @@ try {
   // The browser may resend a request whose connection broke; the app ignores repeats of the same link.
   check(received.length >= 1, `link sent to the app although the answer was lost (received: ${received.length})`);
   check(files().length === 0, `browser stopped its copy when the answer was lost (files: ${JSON.stringify(files())})`);
+
+  // 7. The app refreshed the extension folder with a newer version: the extension reloads itself.
+  const manifestFile = path.join(EXT, "manifest.json");
+  const updated = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const newVersion = "99.0.0";
+  updated.version = newVersion;
+  fs.writeFileSync(manifestFile, JSON.stringify(updated, null, 2));
+  shippedExtension = newVersion;
+  appRunning = true;
+  const loadedVersions = async () => {
+    const result = [];
+    for (const t of browser.targets().filter((t) => t.type() === "service_worker" && t.url().startsWith("chrome-extension://"))) {
+      try {
+        const w = await Promise.race([t.worker(), sleep(3000).then(() => null)]);
+        if (w) result.push(await Promise.race([w.evaluate(() => chrome.runtime.getManifest().version), sleep(3000).then(() => "?")]));
+      } catch (e) { /* worker restarting */ }
+    }
+    return result;
+  };
+  try {
+    const w = await worker.worker();
+    await Promise.race([w.evaluate(() => ping()), sleep(5000)]);
+  } catch (e) { /* the worker may already be reloading */ }
+  let versions = [];
+  for (let i = 0; i < 20 && !versions.includes(newVersion); i++) {
+    await sleep(1000);
+    versions = await loadedVersions();
+  }
+  check(versions.includes(newVersion), `extension reloaded itself after an update on disk (loaded: ${JSON.stringify(versions)})`);
 } catch (e) {
   failures++;
   console.log(`::error::Extension test crashed: ${e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e}`);

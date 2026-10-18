@@ -29,6 +29,25 @@ async function settings() {
 
 const EXTENSION_VERSION = api.runtime.getManifest().version;
 
+/**
+ * The app copies its newer extension into the folder the browser loads it from. Unpacked extensions
+ * are read from disk, so a newer manifest.json there means an update is waiting: reload to apply it.
+ */
+async function reloadIfUpdatedOnDisk() {
+  try {
+    const res = await fetch(api.runtime.getURL("manifest.json"), { cache: "no-store" });
+    const onDisk = (await res.json()).version;
+    if (onDisk && onDisk !== EXTENSION_VERSION) {
+      console.log(`MacOS Download Manager extension ${EXTENSION_VERSION} → ${onDisk}: reloading`);
+      api.runtime.reload();
+      return true;
+    }
+  } catch (e) {
+    // Not an unpacked copy, or the file is being replaced right now: try again later.
+  }
+  return false;
+}
+
 function endpoint(port, path) {
   const separator = path.includes("?") ? "&" : "?";
   return `http://127.0.0.1:${port}${path}${separator}ext=${encodeURIComponent(EXTENSION_VERSION)}`;
@@ -57,6 +76,11 @@ async function ping() {
   const { port } = await settings();
   try {
     const res = await fetchWithTimeout(endpoint(port, "/ping"), { method: "GET" }, 2000);
+    if (res.ok) {
+      // The app tells which extension version it ships; a different one means an update is on disk.
+      const info = await res.clone().json().catch(() => ({}));
+      if (info.extension && info.extension !== EXTENSION_VERSION) setTimeout(reloadIfUpdatedOnDisk, 1000);
+    }
     return res.ok;
   } catch (e) {
     return false;
@@ -388,3 +412,6 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
   return true;
 });
+
+// Every time the service worker starts (browser start, downloads, clicks…), apply a waiting update.
+reloadIfUpdatedOnDisk();

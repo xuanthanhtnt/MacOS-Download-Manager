@@ -1,5 +1,12 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.4
+- Sửa lỗi video **1080p tải xong nhưng không ghép được** hình và tiếng: app ghép bằng ffmpeg trước (cách yt-dlp dùng cho YouTube), macOS chỉ là phương án dự phòng và nay dùng đúng khoảng thời gian của từng luồng; nếu vẫn lỗi, thông báo ghi rõ lỗi của cả hai.
+- Nhận đúng luồng tiếng HLS mà yt-dlp không ghi tên codec (trước đây bị bỏ qua).
+- Có bài kiểm tra tải trọn vẹn kiểu YouTube 1080p: danh sách HLS hình riêng + tiếng riêng → yt-dlp → ffmpeg → MP4.
+- **Tiện ích trình duyệt mang cùng số phiên bản với app** và **tự cập nhật**: khi app làm mới thư mục tiện ích, tiện ích tự nạp lại bản mới. Hết cảnh báo “Tiện ích đã cũ” sai khi tiện ích đã là bản mới nhất.
+- **Cần làm một lần:** trong `brave://extensions` bấm ↻ ở tiện ích MacOS Download Manager (nếu nạp từ thư mục “Mở thư mục tiện ích trong Finder”), hoặc gỡ tiện ích cũ và nạp thư mục đó. Từ các bản sau tiện ích tự cập nhật.
+
 ### Có gì mới ở 1.1.3
 - Sửa lỗi tải video YouTube xong nhưng **ghép không được (“Cannot Open”) và hai tệp tải về không mở được**: yt-dlp bản mới liệt kê thêm các luồng HLS của YouTube (bitrate cao hơn) và app đã chọn chúng; không có ffmpeg, yt-dlp lưu chúng dạng MPEG-TS trong tệp .mp4 mà macOS không mở được. Nay app ưu tiên luồng MP4 thường của YouTube (tải đa kết nối, macOS tự ghép), chỉ dùng HLS khi không còn lựa chọn khác.
 - **ffmpeg được tải tự động** (một lần, bản dựng có chữ ký từ ffmpeg.martin-riedl.de, kiểm tra SHA-256 và chữ ký) cùng yt-dlp và Deno: ghép những luồng macOS không ghép được, chuyển HLS/MPEG-TS sang MP4, và mở thêm chất lượng 1440p/4K (VP9/AV1).

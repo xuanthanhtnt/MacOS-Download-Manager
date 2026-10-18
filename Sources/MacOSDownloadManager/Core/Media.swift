@@ -91,7 +91,8 @@ struct YTDLFormat: Decodable, Hashable {
     }
 
     var isVideoOnly: Bool { known(vcodec) == true && known(acodec) == false }
-    var isAudioOnly: Bool { known(vcodec) == false && known(acodec) == true }
+    /// yt-dlp leaves the codec of HLS audio renditions empty: no picture and an unknown codec is audio too.
+    var isAudioOnly: Bool { known(vcodec) == false && known(acodec) != false }
     /// Contains both picture and sound (or the codecs are unknown, as for plain .mp4 links).
     var isMuxed: Bool { !isVideoOnly && !isAudioOnly && known(vcodec) != false }
 
@@ -194,7 +195,9 @@ enum MediaPlanner {
 
     private static func m4aAudio(_ f: YTDLFormat) -> Bool {
         let a = (f.acodec ?? "").lowercased()
-        return f.ext == "m4a" || a.hasPrefix("mp4a")
+        if f.ext == "m4a" || a.hasPrefix("mp4a") { return true }
+        // HLS audio without codec information (yt-dlp leaves it empty) is AAC in practice.
+        return a.isEmpty && f.isHLS && (f.ext == "mp4" || f.ext == "m4a")
     }
 
     /// Builds the list of qualities the user can choose from, best first, audio-only last.
@@ -339,8 +342,10 @@ enum MediaMuxer {
         guard let sourceVideo = videoTracks.first, let sourceAudio = audioTracks.first else {
             throw MediaError.message(String(localized: "The video or audio stream could not be read"))
         }
-        let videoDuration = try await videoAsset.load(.duration)
-        let audioDuration = try await audioAsset.load(.duration)
+        // The tracks' own time ranges: streams (e.g. YouTube DASH files) do not always start at zero
+        // or last exactly as long as the file says.
+        let videoRange = try await sourceVideo.load(.timeRange)
+        let audioRange = try await sourceAudio.load(.timeRange)
         let transform = try await sourceVideo.load(.preferredTransform)
 
         let composition = AVMutableComposition()
@@ -348,10 +353,10 @@ enum MediaMuxer {
               let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw MediaError.message(String(localized: "Could not join video and audio"))
         }
-        try videoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: videoDuration), of: sourceVideo, at: .zero)
+        try videoTrack.insertTimeRange(videoRange, of: sourceVideo, at: .zero)
         videoTrack.preferredTransform = transform
-        let audioLength = CMTimeMinimum(audioDuration, videoDuration.seconds > 0 ? videoDuration : audioDuration)
-        try audioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: audioLength), of: sourceAudio, at: .zero)
+        let audioLength = videoRange.duration.seconds > 0 ? CMTimeMinimum(audioRange.duration, videoRange.duration) : audioRange.duration
+        try audioTrack.insertTimeRange(CMTimeRange(start: audioRange.start, duration: audioLength), of: sourceAudio, at: .zero)
 
         try? FileManager.default.removeItem(at: output)
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
@@ -368,8 +373,11 @@ enum MediaMuxer {
         }
     }
 
-    static func mergeWithFFmpeg(_ ffmpeg: String, video: URL, audio: URL, output: URL) async throws {
-        try await runFFmpeg(ffmpeg, ["-i", video.path, "-i", audio.path, "-map", "0:v:0", "-map", "1:a:0"], output: output)
+    static func mergeWithFFmpeg(_ ffmpeg: String, video: URL, audio: URL, output: URL, hevc: Bool = false) async throws {
+        var args = ["-i", video.path, "-i", audio.path, "-map", "0:v:0", "-map", "1:a:0"]
+        // QuickTime only plays HEVC in MP4 with the "hvc1" tag (ffmpeg writes "hev1" by default).
+        if hevc { args += ["-tag:v", "hvc1"] }
+        try await runFFmpeg(ffmpeg, args, output: output)
     }
 
     /// Rewrites one file into the container of `output` (e.g. MPEG-TS → MP4) without re-encoding.

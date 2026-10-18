@@ -32,10 +32,18 @@ final class ExtensionStatus: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
-    /// True when a connected extension is older than this app.
+    /// Version of the extension shipped inside this app (since 1.1.4 the same as the app's version).
+    static let bundledVersion: String? = {
+        guard let manifest = Bundle.main.resourceURL?.appendingPathComponent("BrowserExtension/chrome/manifest.json"),
+              let data = try? Data(contentsOf: manifest),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return json["version"] as? String
+    }()
+
+    /// True when the connected extension is older than the one shipped with this app.
     var isOutdated: Bool {
         guard let version else { return false }
-        return ExtensionStatus.compare(version, appVersion) == .orderedAscending
+        return ExtensionStatus.compare(version, ExtensionStatus.bundledVersion ?? appVersion) == .orderedAscending
     }
 
     static func compare(_ a: String, _ b: String) -> ComparisonResult {
@@ -202,6 +210,7 @@ final class BrowserBridgeServer {
         } else if request.method == "GET" && request.path.hasPrefix("/ping") {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
             body = ["ok": true, "app": "MacOS Download Manager", "version": version]
+            if let shipped = ExtensionStatus.bundledVersion { body?["extension"] = shipped }
         } else if request.method == "POST" {
             let contentType = request.headers["content-type"]?.lowercased() ?? ""
             if !contentType.contains("application/json") {

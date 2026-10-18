@@ -322,6 +322,92 @@ final class MediaTests: XCTestCase {
 
     // MARK: Real tools and YouTube (CI only; YouTube may refuse data-center addresses)
 
+    /// The way YouTube's 1080p is often served now: a video-only HLS playlist and a separate audio
+    /// playlist (MPEG-TS segments). Real yt-dlp reads the master playlist and downloads both parts,
+    /// ffmpeg turns them into MP4 and joins them – the whole path, against the local test server.
+    func testHLSVideoAndAudioPlaylistsLikeYouTube() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard env["MDM_NETWORK_TESTS"] == "1", let server = env["MDM_TEST_SERVER"], let fixtures = env["MDM_TEST_FIXTURES"] else {
+            throw XCTSkip("Network tests / test server not configured")
+        }
+        let tools = MediaTools.shared
+        try await tools.installMissing()
+        XCTAssertTrue(tools.isInstalled)
+        let maybeFFmpeg = await tools.ensureFFmpeg()
+        let ffmpeg = try XCTUnwrap(maybeFFmpeg, "ffmpeg must download: \(tools.lastError ?? "")")
+
+        let workDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("mdm-hlsav-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: workDir) }
+        let video = URL(fileURLWithPath: workDir).appendingPathComponent("v.mp4")
+        let audio = URL(fileURLWithPath: workDir).appendingPathComponent("a.m4a")
+        try Self.makeVideo(video, seconds: 4)
+        try Self.makeAudio(audio, seconds: 4)
+        let files = URL(fileURLWithPath: fixtures).appendingPathComponent("files").path
+        for (input, kind, drop) in [(video, "v", "-an"), (audio, "a", "-vn")] {
+            let r = try await MediaTools.runProcess(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", input.path,
+                                                             "-c", "copy", drop, "-f", "hls", "-hls_time", "1",
+                                                             "-hls_playlist_type", "vod",
+                                                             "-hls_segment_filename", "\(files)/hlsav-\(kind)%03d.ts",
+                                                             "\(files)/hlsav-\(kind).m3u8"])
+            XCTAssertEqual(r.status, 0, r.stderrTail)
+        }
+        let master = """
+        #EXTM3U
+        #EXT-X-VERSION:3
+        #EXT-X-INDEPENDENT-SEGMENTS
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="Default",DEFAULT=YES,AUTOSELECT=YES,URI="hlsav-a.m3u8"
+        #EXT-X-STREAM-INF:BANDWIDTH=4400000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=30,AUDIO="aud"
+        hlsav-v.m3u8
+
+        """
+        try master.write(toFile: "\(files)/hlsav-master.m3u8", atomically: true, encoding: .utf8)
+        let page = URL(string: server + "/files/hlsav-master.m3u8")!
+
+        // What yt-dlp lists and what the app offers.
+        let info = try await tools.extract(url: page, cookiesBrowser: "")
+        print("MDM-NOTE HLS formats: " + info.formats.map { "\($0.formatID) \($0.proto ?? "?") v=\($0.vcodec ?? "nil") a=\($0.acodec ?? "nil") h=\($0.height ?? 0)" }.joined(separator: " | "))
+        let options = MediaPlanner.options(for: info, ffmpeg: true)
+        print("MDM-NOTE HLS options: " + options.map { "\($0.title)=\($0.spec) \($0.merge) direct=\($0.direct)" }.joined(separator: ", "))
+        let hd = try XCTUnwrap(options.first { $0.height == 1080 }, "a 1080p video + audio quality")
+        XCTAssertEqual(hd.formatIDs.count, 2)
+        XCTAssertEqual(hd.merge, .ffmpeg)
+
+        var item = DownloadItem(url: page, fileName: "HLS test.mp4", directory: workDir)
+        item.kind = .media
+        item.mediaFormat = hd.spec
+        let temp = (workDir as NSString).appendingPathComponent("HLS test.mp4.mdmpart")
+        let config = EngineConfig(maxConnections: 4, retries: 2, timeout: 30, headers: [:], credential: nil, proxy: nil)
+        let result: (ext: String?, error: String?, parts: Int) = await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                let engine = MediaDownloadEngine(item: item, tempPath: temp, config: config, cookiesBrowser: "", maxHeight: 0)
+                var resumed = false
+                var parts = 0
+                engine.onEvent = { event in
+                    guard !resumed else { return }
+                    switch event {
+                    case .progress(let p): parts = p.mediaParts?.count ?? parts
+                    case .finished(let ext): resumed = true; continuation.resume(returning: (ext, nil, parts)); _ = engine
+                    case .failed(let message): resumed = true; continuation.resume(returning: (nil, message, parts)); _ = engine
+                    default: break
+                    }
+                }
+                engine.start()
+            }
+        }
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.ext, "mp4")
+        XCTAssertEqual(result.parts, 2)
+        let movie = URL(fileURLWithPath: (workDir as NSString).appendingPathComponent("hls-check.mp4"))
+        try FileManager.default.moveItem(at: URL(fileURLWithPath: temp), to: movie)
+        XCTAssertEqual(MediaMuxer.sniff(movie), .mp4)
+        let counts = try await trackCounts(movie)
+        print("MDM-NOTE HLS video+audio joined: video \(counts.video), audio \(counts.audio), \(counts.duration)s")
+        XCTAssertEqual(counts.video, 1)
+        XCTAssertEqual(counts.audio, 1)
+        XCTAssertEqual(counts.duration, 4, accuracy: 1.0)
+    }
+
     /// The case from version 1.1.2: an HLS video stream saved as MPEG-TS in a .mp4 file plus an M4A
     /// audio stream. macOS refuses the TS file ("Cannot Open"); on Resume the engine joins the parts
     /// already downloaded with ffmpeg, without reading the page or downloading again.
