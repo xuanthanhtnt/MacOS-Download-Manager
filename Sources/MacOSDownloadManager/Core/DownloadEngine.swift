@@ -478,14 +478,13 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
             return
         }
 
+        // Speed limiter: hold this download's delegate queue so URLSession stops delivering data
+        // (and stops reading from the socket while the task is suspended).
         let delay = SpeedLimiter.shared.consume(chunk.count)
-        if delay > 0.01 {
+        if delay > 0.002 {
             dataTask.suspend()
-            queue.asyncAfter(deadline: .now() + min(delay, 2)) { [weak self] in
-                guard let self, !self.stopped, !self.finished,
-                      self.connections[ObjectIdentifier(dataTask)] != nil else { return }
-                dataTask.resume()
-            }
+            Thread.sleep(forTimeInterval: min(delay, 1.0))
+            if !stopped && !finished { dataTask.resume() }
         }
     }
 
