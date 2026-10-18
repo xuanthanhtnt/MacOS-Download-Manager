@@ -289,6 +289,7 @@ struct SidebarView: View {
 struct StatusBarView: View {
     @EnvironmentObject var manager: DownloadManager
     @EnvironmentObject var settings: SettingsStore
+    @ObservedObject private var extensionStatus = ExtensionStatus.shared
 
     var body: some View {
         HStack(spacing: 14) {
@@ -314,6 +315,15 @@ struct StatusBarView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if extensionStatus.isOutdated {
+                Button {
+                    WindowManager.shared.showOptions(tab: .browser)
+                } label: {
+                    Label("Browser extension is outdated – update it", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+            }
             HStack(spacing: 5) {
                 Circle()
                     .fill(settings.data.browserIntegration ? Color.green : Color.gray)

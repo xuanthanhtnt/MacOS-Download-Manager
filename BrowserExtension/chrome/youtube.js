@@ -1,6 +1,9 @@
 // Adds a "Download video" button on YouTube watch/shorts pages (like IDM's download panel).
 // The page address is sent to MacOS Download Manager, where the quality is chosen.
 (() => {
+  // The script can be injected twice (manifest + after an extension update): run once per page.
+  if (window.__mdmYouTubeButton) return;
+  window.__mdmYouTubeButton = true;
   const api = globalThis.chrome ?? globalThis.browser;
   const BUTTON_ID = "mdm-download-video";
 
@@ -18,7 +21,13 @@
     button.id = BUTTON_ID;
     button.type = "button";
     button.title = "Download this video with MacOS Download Manager";
-    button.innerHTML = '<b aria-hidden="true">⬇</b><span>Download video</span>';
+    // Built with DOM calls: YouTube enforces Trusted Types, which blocks innerHTML.
+    const icon = document.createElement("b");
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "⬇";
+    const label = document.createElement("span");
+    label.textContent = "Download video";
+    button.append(icon, label);
     Object.assign(button.style, {
       position: "fixed",
       top: "68px",

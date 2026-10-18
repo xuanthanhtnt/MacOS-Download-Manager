@@ -48,6 +48,17 @@ class Handler(BaseHTTPRequestHandler):
             if not head:
                 self.wfile.write(body)
             return
+        if path == "/watch":
+            # Imitates a YouTube watch page, including its Trusted Types policy (blocks innerHTML).
+            body = b'<!doctype html><html><head><title>Test video - YouTube</title></head><body><div id="player">video</div></body></html>'
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Security-Policy", "require-trusted-types-for 'script'")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if not head:
+                self.wfile.write(body)
+            return
         if path.startswith("/redirect/"):
             # Like go.microsoft.com/fwlink: an address without the file name that redirects to the file
             self.send_response(302)

@@ -364,3 +364,8 @@
 "Deno" = "Deno";
 "FFmpeg" = "FFmpeg";
 "Website" = "Trang web";
+"Installed extension" = "Tiện ích đang dùng";
+"Outdated – update it" = "Đã cũ – cần cập nhật";
+"Not connected yet" = "Chưa kết nối";
+"Browser extension is outdated – update it" = "Tiện ích trình duyệt đã cũ – cần cập nhật";
+"The extension in your browser is older than the app. Click “Show Extension Folder in Finder”, then in the browser's extensions page remove the old MacOS Download Manager extension and load the new folder (Load unpacked). Reload the open YouTube tabs afterwards." = "Tiện ích trong trình duyệt cũ hơn app. Bấm “Mở thư mục tiện ích trong Finder”, rồi trong trang tiện ích của trình duyệt hãy gỡ tiện ích MacOS Download Manager cũ và nạp thư mục mới (Load unpacked). Sau đó tải lại các tab YouTube đang mở.";

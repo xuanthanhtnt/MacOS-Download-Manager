@@ -397,6 +397,7 @@ private struct SiteLoginsOptions: View {
 
 private struct BrowserOptions: View {
     @EnvironmentObject var settings: SettingsStore
+    @ObservedObject private var extensionStatus = ExtensionStatus.shared
     @State private var status = ""
 
     private var bookmarklet: String {
@@ -411,6 +412,28 @@ private struct BrowserOptions: View {
                 HStack {
                     Button("Test connection") { test() }
                     Text(verbatim: status).foregroundStyle(.secondary)
+                }
+                LabeledContent("Installed extension") {
+                    if let version = extensionStatus.version {
+                        HStack(spacing: 6) {
+                            Text(verbatim: version == ExtensionStatus.olderThanVersionReporting
+                                 ? "≤ v" + version : "v" + version)
+                            if extensionStatus.isOutdated {
+                                Label("Outdated – update it", systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                            } else {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            }
+                        }
+                    } else {
+                        Text("Not connected yet").foregroundStyle(.secondary)
+                    }
+                }
+                if extensionStatus.isOutdated {
+                    Text("The extension in your browser is older than the app. Click “Show Extension Folder in Finder”, then in the browser's extensions page remove the old MacOS Download Manager extension and load the new folder (Load unpacked). Reload the open YouTube tabs afterwards.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } footer: {
                 Text("The MacOS Download Manager extension sends captured downloads to MacOS Download Manager on 127.0.0.1. Only the extension can use this port; web pages are rejected.")
@@ -457,23 +480,54 @@ private struct BrowserOptions: View {
 }
 
 enum BrowserExtensionInstaller {
+    private static var bundled: URL? {
+        guard let source = Bundle.main.resourceURL?.appendingPathComponent("BrowserExtension"),
+              FileManager.default.fileExists(atPath: source.path) else { return nil }
+        return source
+    }
+
+    /// Stable folder the browser loads the extension from (survives app updates).
+    static var installedCopy: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("MacOS Download Manager", isDirectory: true)
+        return base.appendingPathComponent("BrowserExtension", isDirectory: true)
+    }
+
+    private static func version(of folder: URL) -> String? {
+        let manifest = folder.appendingPathComponent("chrome/manifest.json")
+        guard let data = try? Data(contentsOf: manifest),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return json["version"] as? String
+    }
+
+    @discardableResult
+    private static func copyBundled() -> Bool {
+        guard let source = bundled else { return false }
+        let fm = FileManager.default
+        let target = installedCopy
+        try? fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.removeItem(at: target)
+        return (try? fm.copyItem(at: source, to: target)) != nil
+    }
+
+    /// Called at launch: if the user loads the extension from the stable folder, refresh it after an app update,
+    /// so the browser only needs a reload (↻) to get the new version.
+    static func refreshInstalledCopyIfNeeded() {
+        guard let source = bundled, FileManager.default.fileExists(atPath: installedCopy.path) else { return }
+        if version(of: installedCopy) != version(of: source) {
+            copyBundled()
+        }
+    }
+
     /// Copies the bundled extension to Application Support (a stable path the browser can load) and reveals it.
     static func reveal() {
-        let fm = FileManager.default
-        guard let source = Bundle.main.resourceURL?.appendingPathComponent("BrowserExtension"),
-              fm.fileExists(atPath: source.path) else {
+        guard copyBundled() else {
             if let url = URL(string: "https://github.com/xuanthanhtnt/MacOS-Download-Manager/tree/main/BrowserExtension") {
                 NSWorkspace.shared.open(url)
             }
             return
         }
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("MacOS Download Manager", isDirectory: true)
-        let target = base.appendingPathComponent("BrowserExtension", isDirectory: true)
-        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
-        try? fm.removeItem(at: target)
-        try? fm.copyItem(at: source, to: target)
-        NSWorkspace.shared.activateFileViewerSelecting([target.appendingPathComponent("chrome")])
+        NSWorkspace.shared.activateFileViewerSelecting([installedCopy.appendingPathComponent("chrome")])
     }
 }
 

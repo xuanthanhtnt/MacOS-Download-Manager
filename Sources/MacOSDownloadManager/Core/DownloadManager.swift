@@ -123,6 +123,7 @@ final class DownloadManager: ObservableObject {
             .store(in: &cancellables)
 
         SystemActions.requestNotificationPermission()
+        BrowserExtensionInstaller.refreshInstalledCopyIfNeeded()
 
         scheduleTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             self?.checkSchedules()

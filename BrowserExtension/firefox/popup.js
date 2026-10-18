@@ -32,6 +32,7 @@ function nameOf(url) {
 }
 
 async function init() {
+  document.getElementById("version").textContent = "v" + api.runtime.getManifest().version;
   const status = document.getElementById("status");
   const ping = await send({ type: "ping" });
   if (ping.ok) {

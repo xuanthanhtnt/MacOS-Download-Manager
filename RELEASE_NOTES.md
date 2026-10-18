@@ -1,5 +1,10 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.1
+- Nút **“⬇ Download video”** trên YouTube hiện cả ở các tab YouTube đang mở sẵn khi cài/cập nhật tiện ích (không cần tải lại trang), và không dùng `innerHTML` (an toàn với chính sách Trusted Types của YouTube).
+- App biết phiên bản tiện ích đang kết nối: **cảnh báo “Tiện ích trình duyệt đã cũ”** ở thanh trạng thái và trong Tùy chọn → Trình duyệt; popup tiện ích hiện số phiên bản.
+- Thư mục tiện ích ổn định (Tùy chọn → Trình duyệt → “Mở thư mục tiện ích trong Finder”) được app tự cập nhật sau mỗi lần nâng cấp: chỉ cần bấm ↻ trong trang tiện ích của trình duyệt.
+
 ### Có gì mới ở 1.1.0
 - **Tải video YouTube và nhiều trang video khác** (Facebook, TikTok, Vimeo, X…): chọn chất lượng, luồng hình và luồng tiếng tải song song bằng nhiều kết nối rồi ghép thành MP4 (tới 1080p; 1440p/4K khi có ffmpeg). Lần đầu dùng, app tự tải yt-dlp + Deno từ GitHub chính thức.
 - Tiện ích trình duyệt: nút **“Download video from this page”** và menu chuột phải **“Download video with MacOS Download Manager”**.

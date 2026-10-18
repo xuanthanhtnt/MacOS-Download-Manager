@@ -12,7 +12,16 @@ import { fileURLToPath } from "node:url";
 
 const puppeteer = (await import(process.env.MDM_PUPPETEER || "puppeteer")).default;
 const here = path.dirname(fileURLToPath(import.meta.url));
-const EXT = process.env.MDM_EXT || path.resolve(here, "../../BrowserExtension/chrome");
+const SOURCE_EXT = process.env.MDM_EXT || path.resolve(here, "../../BrowserExtension/chrome");
+// Test copy of the extension whose YouTube script also runs on the local test server's /watch page.
+const EXT = fs.mkdtempSync(path.join(os.tmpdir(), "mdm-ext-"));
+fs.cpSync(SOURCE_EXT, EXT, { recursive: true });
+{
+  const manifestPath = path.join(EXT, "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  for (const script of manifest.content_scripts || []) script.matches.push("http://127.0.0.1/*");
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+}
 const SERVER = process.env.MDM_TEST_SERVER || "http://127.0.0.1:8765";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -32,7 +41,9 @@ let appRunning = false;
 let dropAnswers = false; // simulate an answer that never reaches the browser
 const received = [];
 const mediaReceived = [];
+const requestPaths = [];
 const bridge = http.createServer((req, res) => {
+  requestPaths.push(req.url);
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
@@ -129,10 +140,31 @@ try {
   check(files().length === 0, `browser did not download the redirected file too (files: ${JSON.stringify(files())})`);
 
   // 5. "Download video from this page" sends the page to the app's video downloader.
-  const sw = await worker.worker();
-  const sent = await sw.evaluate(() => sendMediaPage("https://www.youtube.com/watch?v=BaW_jenozKc", "Test video"));
-  check(sent === true && mediaReceived.length === 1 && mediaReceived[0].url.includes("BaW_jenozKc"),
-        `video page sent to the app (received: ${JSON.stringify(mediaReceived)})`);
+  if (process.env.MDM_SKIP_SW_EVAL !== "1") {
+    const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms));
+    const sent = await Promise.race([
+      (async () => (await worker.worker()).evaluate(() => sendMediaPage("https://www.youtube.com/watch?v=BaW_jenozKc", "Test video")))(),
+      timeout(15000)
+    ]).catch((e) => `error: ${e.message}`);
+    check(sent === true && mediaReceived.length === 1 && mediaReceived[0].url.includes("BaW_jenozKc"),
+          `video page sent to the app (sent: ${sent}, received: ${JSON.stringify(mediaReceived)})`);
+  }
+
+  // 6. The "Download video" button appears on a YouTube-like page (with Trusted Types) and sends the page.
+  mediaReceived.length = 0;
+  const watch = await browser.newPage();
+  await watch.goto(`${SERVER}/watch?v=test123&list=RDtest&t=61s`);
+  const button = await watch.waitForSelector("#mdm-download-video", { timeout: 8000 }).catch(() => null);
+  check(!!button, "Download video button shown on the video page");
+  if (button) {
+    await button.click();
+    await sleep(2500);
+  }
+  check(mediaReceived.length === 1 && String(mediaReceived[0].url).includes("/watch?v=test123"),
+        `button sent the video page to the app (received: ${JSON.stringify(mediaReceived.map((m) => m.url))})`);
+  const manifestVersion = JSON.parse(fs.readFileSync(path.join(EXT, "manifest.json"), "utf8")).version;
+  check(requestPaths.some((p) => p.includes(`ext=${manifestVersion}`)),
+        `requests report the extension version ${manifestVersion} (e.g. ${requestPaths[requestPaths.length - 1]})`);
 
   // 4. The app got the link but its answer was lost: the browser must still stop its own copy.
   clear();

@@ -27,8 +27,11 @@ async function settings() {
   return { ...DEFAULTS, ...stored };
 }
 
+const EXTENSION_VERSION = api.runtime.getManifest().version;
+
 function endpoint(port, path) {
-  return `http://127.0.0.1:${port}${path}`;
+  const separator = path.includes("?") ? "&" : "?";
+  return `http://127.0.0.1:${port}${path}${separator}ext=${encodeURIComponent(EXTENSION_VERSION)}`;
 }
 
 async function cookiesFor(url) {
@@ -257,8 +260,27 @@ function createMenus() {
   });
 }
 
-api.runtime.onInstalled.addListener(createMenus);
-api.runtime.onStartup?.addListener(createMenus);
+/** Adds the YouTube "Download video" button to tabs that were already open before install/update. */
+async function injectIntoOpenYouTubeTabs() {
+  try {
+    const tabs = await api.tabs.query({ url: ["*://www.youtube.com/*", "*://m.youtube.com/*", "*://youtube.com/*"] });
+    for (const tab of tabs) {
+      try {
+        await api.scripting.executeScript({ target: { tabId: tab.id }, files: ["youtube.js"] });
+      } catch (e) {}
+    }
+  } catch (e) {}
+}
+
+api.runtime.onInstalled.addListener(() => {
+  createMenus();
+  injectIntoOpenYouTubeTabs();
+  ping(); // tells the app which extension version is installed
+});
+api.runtime.onStartup?.addListener(() => {
+  createMenus();
+  ping();
+});
 
 function collectLinks() {
   const urls = new Set();

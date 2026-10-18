@@ -2,6 +2,53 @@ import Foundation
 import AppKit
 import Network
 import UserNotifications
+import Combine
+
+/// Which version of the browser extension last talked to the app (to warn about outdated copies).
+final class ExtensionStatus: ObservableObject {
+    static let shared = ExtensionStatus()
+
+    @Published private(set) var version: String?
+    @Published private(set) var lastSeen: Date?
+
+    private let key = "MDM.extensionVersion"
+
+    /// Recorded for extensions that do not report their version (1.1.0 and older).
+    static let olderThanVersionReporting = "1.1.0"
+
+    private init() {
+        version = UserDefaults.standard.string(forKey: key)
+    }
+
+    func seen(version newVersion: String) {
+        if version != newVersion {
+            version = newVersion
+            UserDefaults.standard.set(newVersion, forKey: key)
+        }
+        lastSeen = Date()
+    }
+
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    /// True when a connected extension is older than this app.
+    var isOutdated: Bool {
+        guard let version else { return false }
+        return ExtensionStatus.compare(version, appVersion) == .orderedAscending
+    }
+
+    static func compare(_ a: String, _ b: String) -> ComparisonResult {
+        let x = a.split(separator: ".").map { Int($0) ?? 0 }
+        let y = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(x.count, y.count) {
+            let l = i < x.count ? x[i] : 0
+            let r = i < y.count ? y[i] : 0
+            if l != r { return l < r ? .orderedAscending : .orderedDescending }
+        }
+        return .orderedSame
+    }
+}
 
 // MARK: - Local server used by the browser extension
 
@@ -137,6 +184,13 @@ final class BrowserBridgeServer {
         var message: Message?
         let origin = request.headers["origin"]
         let allowed = isAllowedOrigin(origin)
+        if allowed, let origin, origin.lowercased().contains("extension://") {
+            // Extensions from 1.1.1 on add their version to every request; older ones do not.
+            let reported = URLComponents(string: "http://localhost" + request.path)?
+                .queryItems?.first(where: { $0.name == "ext" })?.value
+            let version = (reported?.isEmpty == false ? reported : nil) ?? ExtensionStatus.olderThanVersionReporting
+            DispatchQueue.main.async { ExtensionStatus.shared.seen(version: version) }
+        }
 
         if !allowed {
             status = "403 Forbidden"
