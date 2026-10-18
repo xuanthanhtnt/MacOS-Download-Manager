@@ -125,52 +125,95 @@ async function resolvedFileName(item) {
 
 const handled = new Set();
 
-api.downloads.onCreated.addListener(async (item) => {
-  try {
-    const cfg = await settings();
-    if (!cfg.enabled) return;
-    const url = item.finalUrl || item.url;
-    if (!/^https?:|^ftp:/i.test(url)) return; // blob:, data:, file: stay in the browser
-    if (handled.has(item.id)) return;
-    handled.add(item.id);
-
-    // Decide quickly from the address and MIME type, otherwise from the real file name.
-    let name = baseName(item.filename);
-    let ext = extensionOf(url, name) || extensionOf(item.url, "");
-    let take = cfg.extensions.includes(ext) || BINARY_MIME.test(item.mime || "");
-    if (!take) {
-      name = await resolvedFileName(item);
-      ext = extensionOf("", name);
-      take = cfg.extensions.includes(ext);
-    }
-    if (!take) {
-      await logEvent(`Left in the browser: ${name || url} (type “${ext || item.mime || "unknown"}” is not in the list)`);
-      return;
-    }
-    if (cfg.minSizeKB > 0 && item.fileSize > 0 && item.fileSize < cfg.minSizeKB * 1024) {
-      await logEvent(`Left in the browser: ${name || url} (smaller than ${cfg.minSizeKB} KB)`);
-      return;
-    }
-
-    const ok = await sendDownload({
-      url,
-      referrer: item.referrer,
-      fileName: name,
-      fileSize: item.fileSize > 0 ? item.fileSize : item.totalBytes,
-      mime: item.mime
-    });
-    if (ok) {
-      try { await api.downloads.cancel(item.id); } catch (e) {}
-      try { await api.downloads.erase({ id: item.id }); } catch (e) {}
-      await logEvent(`Sent to MacOS Download Manager: ${name || url}`);
-    } else {
-      await logEvent(`MacOS Download Manager did not answer – the browser kept the download: ${name || url}`);
-    }
-  } catch (e) {
-    console.warn("MacOS Download Manager:", e);
-    await logEvent(`Error: ${e && e.message ? e.message : e}`);
+/** Cancels the browser's own copy of a download and keeps trying until the browser has stopped it. */
+async function cancelInBrowser(id) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try { await api.downloads.cancel(id); } catch (e) {}
+    let state = null;
+    try {
+      const [current] = await api.downloads.search({ id });
+      state = current ? current.state : null;
+    } catch (e) {}
+    if (state !== "in_progress") break;
+    await sleep(250);
   }
-});
+  try { await api.downloads.erase({ id }); } catch (e) {}
+}
+
+/**
+ * Decides whether a browser download is taken over. Returns true when MacOS Download Manager accepted it
+ * (the caller must then cancel the browser's copy).
+ */
+async function takeOver(item, waitForName) {
+  const cfg = await settings();
+  if (!cfg.enabled) return false;
+  const url = item.finalUrl || item.url;
+  if (!/^https?:|^ftp:/i.test(url)) return false; // blob:, data:, file: stay in the browser
+  if (handled.has(item.id)) return false;
+  handled.add(item.id);
+
+  // Decide from the address, the file name and the MIME type.
+  let name = baseName(item.filename);
+  let ext = extensionOf(url, name) || extensionOf(item.url, "");
+  let take = cfg.extensions.includes(ext) || BINARY_MIME.test(item.mime || "");
+  if (!take && !name && waitForName) {
+    name = await resolvedFileName(item);
+    ext = extensionOf("", name);
+    take = cfg.extensions.includes(ext);
+  }
+  if (!take) {
+    await logEvent(`Left in the browser: ${name || url} (type “${ext || item.mime || "unknown"}” is not in the list)`);
+    return false;
+  }
+  if (cfg.minSizeKB > 0 && item.fileSize > 0 && item.fileSize < cfg.minSizeKB * 1024) {
+    await logEvent(`Left in the browser: ${name || url} (smaller than ${cfg.minSizeKB} KB)`);
+    return false;
+  }
+
+  const ok = await sendDownload({
+    url,
+    referrer: item.referrer,
+    fileName: name,
+    fileSize: item.fileSize > 0 ? item.fileSize : item.totalBytes,
+    mime: item.mime
+  });
+  await logEvent(ok
+    ? `Sent to MacOS Download Manager: ${name || url}`
+    : `MacOS Download Manager did not answer – the browser kept the download: ${name || url}`);
+  return ok;
+}
+
+if (api.downloads.onDeterminingFilename) {
+  // Chrome, Edge, Brave, Opera…: the browser waits for us before it chooses the file name,
+  // shows a "Save as" dialog or writes the file, so the download can be stopped cleanly.
+  api.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    let answered = false;
+    const answer = () => {
+      if (answered) return;
+      answered = true;
+      try { suggest(); } catch (e) {}
+    };
+    takeOver(item, false)
+      .then(async (taken) => {
+        if (taken) {
+          await cancelInBrowser(item.id);
+        }
+        answer();
+      })
+      .catch((e) => {
+        console.warn("MacOS Download Manager:", e);
+        answer();
+      });
+    return true; // we call suggest() asynchronously
+  });
+} else {
+  // Firefox: no onDeterminingFilename – take over as soon as the download is created.
+  api.downloads.onCreated.addListener((item) => {
+    takeOver(item, true)
+      .then((taken) => (taken ? cancelInBrowser(item.id) : null))
+      .catch((e) => console.warn("MacOS Download Manager:", e));
+  });
+}
 
 // ---------------------------------------------------------------------------
 // 2. Context menu

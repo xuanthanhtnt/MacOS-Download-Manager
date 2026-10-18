@@ -26,6 +26,7 @@ final class DownloadManager: ObservableObject {
     private var lastScheduleFire: [String: String] = [:]
     private var appliedSettings: AppSettingsData?
     private var bootstrapped = false
+    private var recentCaptures: [String: Date] = [:]
 
     private init() {}
 
@@ -197,6 +198,11 @@ final class DownloadManager: ObservableObject {
 
     /// Entry point for downloads captured from the browser, the clipboard or drag & drop.
     func handleCapture(_ request: CaptureRequest, forceDialog: Bool = false) {
+        // The same link reported twice in a row (e.g. by two browser events) opens only one dialog.
+        let key = request.url.absoluteString
+        if let last = recentCaptures[key], Date().timeIntervalSince(last) < 5 { return }
+        recentCaptures[key] = Date()
+        recentCaptures = recentCaptures.filter { Date().timeIntervalSince($0.value) < 60 }
         if settings.data.showFileInfoDialog || forceDialog {
             WindowManager.shared.showFileInfo(request)
         } else {

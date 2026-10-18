@@ -1,5 +1,10 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.0.3
+- Sửa lỗi trình tải của trình duyệt (Brave/Chrome/Edge) và MacOS Download Manager cùng tải một tệp: tiện ích chặn lượt tải trước khi trình duyệt bắt đầu lưu tệp, và kiểm tra lại cho tới khi trình duyệt dừng hẳn.
+- Một link bị báo trùng nhiều lần chỉ mở một hộp thoại.
+- **Cần cập nhật tiện ích:** chép thư mục tiện ích mới trong file .dmg đè lên thư mục cũ, rồi bấm ↻ (Reload) ở tiện ích trong `brave://extensions`.
+
 ### Có gì mới ở 1.0.2
 - Tiện ích trình duyệt bắt được cả link không có đuôi tệp trong địa chỉ (ví dụ link tải ISO của Microsoft `go.microsoft.com/fwlink/...`): nhận diện theo tên tệp thật và loại MIME.
 - Popup của tiện ích hiển thị lần tải gần nhất đã được gửi sang app hay bị bỏ qua, và lý do.
