@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MacOS Download Manager – Settings</title>
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    body { width: auto; max-width: 560px; margin: 24px auto; padding: 0 16px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 600; }
+    .hint { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+    .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>MacOS Download Manager integration</h1>
+  <label for="port">MacOS Download Manager port</label>
+  <input type="number" id="port" min="1024" max="65535">
+  <p class="hint">Must match MacOS Download Manager → Options → Browser (default 9614).</p>
+
+  <label for="minsize">Ignore files smaller than (KB)</label>
+  <input type="number" id="minsize" min="0">
+
+  <label for="exts">File types to take over</label>
+  <textarea id="exts" rows="6"></textarea>
+  <p class="hint">Separated by spaces. Downloads of other types stay in the browser.</p>
+
+  <div class="actions">
+    <button id="save">Save</button>
+    <span id="saved" class="hint"></span>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
