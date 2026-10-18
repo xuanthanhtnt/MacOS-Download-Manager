@@ -22,12 +22,12 @@ func merge(_ video: String, _ audio: String, _ out: String) async -> String {
         let comp = AVMutableComposition()
         let vt = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)!
         let at = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)!
-        let vd = try await va.load(.duration), ad = try await aa.load(.duration)
-        try vt.insertTimeRange(CMTimeRange(start: .zero, duration: vd), of: sv, at: .zero)
-        try at.insertTimeRange(CMTimeRange(start: .zero, duration: CMTimeMinimum(vd, ad)), of: sa, at: .zero)
+        let vr = try await sv.load(.timeRange), ar = try await sa.load(.timeRange)
+        try vt.insertTimeRange(vr, of: sv, at: .zero)
+        try at.insertTimeRange(CMTimeRange(start: ar.start, duration: CMTimeMinimum(vr.duration, ar.duration)), of: sa, at: .zero)
         try? FileManager.default.removeItem(atPath: out)
         let ex = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough)!
-        ex.outputURL = URL(fileURLWithPath: out); ex.outputFileType = .mp4
+        ex.outputURL = URL(fileURLWithPath: out); ex.outputFileType = .mp4; ex.shouldOptimizeForNetworkUse = true
         await withCheckedContinuation { c in ex.exportAsynchronously { c.resume() } }
         if ex.status == .completed { return "OK merged -> " + (await probe(out)) }
         let e = ex.error! as NSError
