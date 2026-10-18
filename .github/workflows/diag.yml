@@ -33,6 +33,7 @@ jobs:
       - name: Real YouTube streams
         continue-on-error: true
         run: |
+          set +e
           cd f
           for v in dMwX6nGufOw jNQXAC9IVRw; do
             for t in 1 2 3; do
