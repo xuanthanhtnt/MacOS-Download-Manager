@@ -40,7 +40,7 @@ jobs:
               ../ytdlp --no-warnings --js-runtimes deno -J "https://www.youtube.com/watch?v=$v" > $v.json 2> $v.err && break
               sleep 5
             done
-            if [ -s $v.json ]; then python3 ../diag/formats.py $v.json choice_$v.txt > fmt_$v.txt; else tail -2 $v.err > fmt_$v.txt; fi
+            if [ -s $v.json ]; then { python3 ../diag/formats.py $v.json choice_$v.txt; echo "json bytes: $(wc -c < $v.json)"; head -c 300 $v.json; echo; tail -3 $v.err; } > fmt_$v.txt 2>&1; else tail -2 $v.err > fmt_$v.txt; fi
             python3 ../diag/annotate.py "Formats $v" fmt_$v.txt
           done
           if [ -s choice_jNQXAC9IVRw.txt ]; then
