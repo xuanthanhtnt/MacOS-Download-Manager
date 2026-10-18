@@ -76,7 +76,7 @@ swift test                     # chạy unit test
 ./scripts/build_app.sh         # tạo build/MacOS Download Manager.app và build/MacOS-Download-Manager-1.0.0.dmg (universal)
 ```
 
-Mỗi lần đẩy code lên `main`, GitHub Actions build file .dmg (tab **Actions → Artifacts**). Đẩy tag `vX.Y.Z` sẽ tạo một bản **Release** kèm file .dmg.
+Mỗi lần đẩy code lên `main`, GitHub Actions chạy kiểm thử và build file .dmg (tab **Actions → Artifacts**). Khi số phiên bản trong tệp `VERSION` thay đổi (hoặc đẩy tag `vX.Y.Z`), workflow tự tạo bản **Release** kèm file .dmg.
 
 ## Cấu trúc mã nguồn
 
