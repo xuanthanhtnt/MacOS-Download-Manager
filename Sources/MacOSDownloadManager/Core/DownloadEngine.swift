@@ -483,19 +483,32 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         meter.add(chunk.count)
         failures[c.segmentID] = 0
 
+        // Speed limiter: every received byte is counted. Holding this download's delegate queue stops
+        // URLSession from delivering more data (and, with the task suspended, from reading the socket).
+        let delay = SpeedLimiter.shared.consume(chunk.count)
+
         if segments[idx].isComplete {
             close(c)
+            throttle(delay)
             fillConnections()
             return
         }
 
-        // Speed limiter: hold this download's delegate queue so URLSession stops delivering data
-        // (and stops reading from the socket while the task is suspended).
-        let delay = SpeedLimiter.shared.consume(chunk.count)
         if delay > 0.002 {
             dataTask.suspend()
-            Thread.sleep(forTimeInterval: min(delay, 1.0))
+            throttle(delay)
             if !stopped && !finished && !stopRequested { dataTask.resume() }
+        }
+    }
+
+    /// Sleeps on the engine queue in short steps so a stop request is honoured quickly.
+    private func throttle(_ delay: TimeInterval) {
+        guard delay > 0.002 else { return }
+        var remaining = min(delay, 10)
+        while remaining > 0 && !stopRequested {
+            let step = min(remaining, 0.05)
+            Thread.sleep(forTimeInterval: step)
+            remaining -= step
         }
     }
 
