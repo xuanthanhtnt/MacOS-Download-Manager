@@ -75,7 +75,8 @@ jobs:
           set +e
           MDM_HEADLESS=1 MDM_TEST_SERVER=http://127.0.0.1:8766 node test_extension.mjs 2>&1 | tee ext-test.log
           status=${PIPESTATUS[0]}
-          grep -E "^(✔|✘)" ext-test.log | sed 's/^/::notice title=Extension check::/'
+          # One note with every check (GitHub keeps at most 10 notes per step).
+          echo "::notice title=Extension checks::$(grep -E '^(✔|✘)|self-update' ext-test.log | sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"
           kill $SERVER_PID || true
           exit $status
 
