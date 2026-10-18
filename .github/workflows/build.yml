@@ -57,6 +57,9 @@ jobs:
             exit 1
           }
 
+      - name: Smoke test (launch the app, check the main thread)
+        run: ./scripts/smoke_test.sh
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
