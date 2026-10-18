@@ -1,5 +1,10 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.0.2
+- Tiện ích trình duyệt bắt được cả link không có đuôi tệp trong địa chỉ (ví dụ link tải ISO của Microsoft `go.microsoft.com/fwlink/...`): nhận diện theo tên tệp thật và loại MIME.
+- Popup của tiện ích hiển thị lần tải gần nhất đã được gửi sang app hay bị bỏ qua, và lý do.
+- **Cần cài lại tiện ích:** vào `brave://extensions` (hoặc `chrome://extensions`), xoá tiện ích cũ rồi “Load unpacked” thư mục mới trong file .dmg.
+
 ### Có gì mới ở 1.0.1
 - Sửa lỗi treo (con trỏ xoay tròn) ngay sau khi mở ứng dụng.
 - Cho phép tải link `http://` thường (trước đây macOS chặn).

@@ -17,6 +17,8 @@ const DEFAULTS = {
   ]
 };
 
+const sessionStore = api.storage.session ?? api.storage.local;
+
 const MEDIA_TYPES = /^(video\/|audio\/)|mpegurl|dash\+xml/i;
 const MEDIA_EXT = /\.(m3u8|mp4|webm|mkv|mov|m4v|flv|mp3|m4a|aac|ts)(\?|#|$)/i;
 
@@ -88,6 +90,35 @@ function extensionOf(url, filename) {
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
+function baseName(path) {
+  return (path || "").split(/[\\/]/).pop() || "";
+}
+
+// MIME types that are always real file downloads (links such as go.microsoft.com/fwlink/?LinkId=…
+// have no file extension in the address, so the type or the final file name decides).
+const BINARY_MIME = /^(application\/(octet-stream|x-iso9660-image|x-cd-image|zip|x-zip|x-zip-compressed|x-rar|x-rar-compressed|vnd\.rar|x-7z-compressed|gzip|x-gzip|x-tar|x-bzip2|x-xz|zstd|x-apple-diskimage|x-msdownload|x-msi|x-ms-installer|x-msdos-program|vnd\.android\.package-archive|x-debian-package|x-redhat-package-manager|java-archive|epub\+zip|pdf)|video\/|audio\/)/i;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function logEvent(text) {
+  try { await sessionStore.set({ lastEvent: { text, time: Date.now() } }); } catch (e) {}
+}
+
+/** Waits briefly for the browser to determine the real file name (from Content-Disposition or redirects). */
+async function resolvedFileName(item) {
+  let name = baseName(item.filename);
+  for (let i = 0; i < 12 && !name; i++) {
+    await sleep(150);
+    try {
+      const [current] = await api.downloads.search({ id: item.id });
+      name = baseName(current && current.filename);
+    } catch (e) {
+      break;
+    }
+  }
+  return name;
+}
+
 // ---------------------------------------------------------------------------
 // 1. Take over browser downloads
 // ---------------------------------------------------------------------------
@@ -101,24 +132,43 @@ api.downloads.onCreated.addListener(async (item) => {
     const url = item.finalUrl || item.url;
     if (!/^https?:|^ftp:/i.test(url)) return; // blob:, data:, file: stay in the browser
     if (handled.has(item.id)) return;
-    const ext = extensionOf(url, item.filename);
-    if (!cfg.extensions.includes(ext)) return;
-    if (cfg.minSizeKB > 0 && item.fileSize > 0 && item.fileSize < cfg.minSizeKB * 1024) return;
     handled.add(item.id);
+
+    // Decide quickly from the address and MIME type, otherwise from the real file name.
+    let name = baseName(item.filename);
+    let ext = extensionOf(url, name) || extensionOf(item.url, "");
+    let take = cfg.extensions.includes(ext) || BINARY_MIME.test(item.mime || "");
+    if (!take) {
+      name = await resolvedFileName(item);
+      ext = extensionOf("", name);
+      take = cfg.extensions.includes(ext);
+    }
+    if (!take) {
+      await logEvent(`Left in the browser: ${name || url} (type “${ext || item.mime || "unknown"}” is not in the list)`);
+      return;
+    }
+    if (cfg.minSizeKB > 0 && item.fileSize > 0 && item.fileSize < cfg.minSizeKB * 1024) {
+      await logEvent(`Left in the browser: ${name || url} (smaller than ${cfg.minSizeKB} KB)`);
+      return;
+    }
 
     const ok = await sendDownload({
       url,
       referrer: item.referrer,
-      fileName: (item.filename || "").split(/[\\/]/).pop(),
+      fileName: name,
       fileSize: item.fileSize > 0 ? item.fileSize : item.totalBytes,
       mime: item.mime
     });
     if (ok) {
       try { await api.downloads.cancel(item.id); } catch (e) {}
       try { await api.downloads.erase({ id: item.id }); } catch (e) {}
+      await logEvent(`Sent to MacOS Download Manager: ${name || url}`);
+    } else {
+      await logEvent(`MacOS Download Manager did not answer – the browser kept the download: ${name || url}`);
     }
   } catch (e) {
     console.warn("MacOS Download Manager:", e);
+    await logEvent(`Error: ${e && e.message ? e.message : e}`);
   }
 });
 
@@ -177,7 +227,6 @@ api.contextMenus.onClicked.addListener(async (info, tab) => {
 // ---------------------------------------------------------------------------
 
 const mediaKey = (tabId) => `media-${tabId}`;
-const sessionStore = api.storage.session ?? api.storage.local;
 
 async function rememberMedia(tabId, entry) {
   const key = mediaKey(tabId);
@@ -234,6 +283,9 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const key = mediaKey(message.tabId);
       const data = await sessionStore.get({ [key]: [] });
       sendResponse({ media: data[key] });
+    } else if (message.type === "lastEvent") {
+      const data = await sessionStore.get({ lastEvent: null });
+      sendResponse({ lastEvent: data.lastEvent });
     } else if (message.type === "download") {
       sendResponse({ ok: await sendDownload({ url: message.url, referrer: message.referrer }) });
     } else {

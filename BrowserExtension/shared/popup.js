@@ -42,6 +42,13 @@ async function init() {
     status.className = "status bad";
   }
 
+  const { lastEvent } = await send({ type: "lastEvent" });
+  if (lastEvent && lastEvent.text) {
+    document.getElementById("last").hidden = false;
+    const time = new Date(lastEvent.time).toLocaleTimeString();
+    document.getElementById("lastText").textContent = `${time} – ${lastEvent.text}`;
+  }
+
   const enabled = document.getElementById("enabled");
   const stored = await api.storage.local.get({ enabled: true });
   enabled.checked = stored.enabled;

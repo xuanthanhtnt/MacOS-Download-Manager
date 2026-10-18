@@ -40,6 +40,40 @@ if python3 scripts/summarize_sample.py --busy sample.txt; then
 else
   annotate notice "Main thread idle (CPU ${CPU2}%)" main-thread.txt
 fi
+# Browser integration: the local server must answer the extension and reject web pages.
+PING=$(curl -s -m 5 http://127.0.0.1:9614/ping || true)
+echo "ping: $PING"
+EXT_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 -X POST \
+  -H "Content-Type: application/json" -H "Origin: chrome-extension://smoketest" \
+  -d '{"url":"https://example.com/files/test.iso","fileName":"test.iso","referrer":"https://example.com/"}' \
+  http://127.0.0.1:9614/download || true)
+WEB_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 -X POST \
+  -H "Content-Type: application/json" -H "Origin: https://evil.example" \
+  -d '{"url":"https://example.com/x.iso"}' http://127.0.0.1:9614/download || true)
+echo "extension POST: $EXT_CODE, web page POST: $WEB_CODE"
+if [[ "$PING" != *"MacOS Download Manager"* || "$EXT_CODE" != "200" || "$WEB_CODE" != "403" ]]; then
+  echo "ping=$PING ext=$EXT_CODE web=$WEB_CODE" > bridge.txt
+  annotate error "Browser integration server check failed" bridge.txt
+  STATUS=1
+fi
+
+# The captured link opens the "Download File Info" dialog: the app must stay responsive.
+sleep 5
+if kill -0 "$PID" 2>/dev/null; then
+  sample "$PID" 3 -file sample2.txt >/dev/null 2>&1
+  python3 scripts/summarize_sample.py sample2.txt > main-thread2.txt
+  if python3 scripts/summarize_sample.py --busy sample2.txt; then
+    annotate error "Main thread busy after a captured download" main-thread2.txt
+    STATUS=1
+  else
+    echo "Main thread idle after capture"
+  fi
+else
+  tail -60 smoke.log > smoke-tail.txt
+  annotate error "App exited after a captured download" smoke-tail.txt
+  exit 1
+fi
+
 tail -40 smoke.log > smoke-tail.txt
 [ -s smoke-tail.txt ] && annotate notice "App console output" smoke-tail.txt
 

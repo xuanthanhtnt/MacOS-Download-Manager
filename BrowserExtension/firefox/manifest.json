@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MacOS Download Manager Integration",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sends downloads, links and videos to MacOS Download Manager – the download accelerator for macOS.",
   "permissions": ["downloads", "contextMenus", "cookies", "storage", "webRequest", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
