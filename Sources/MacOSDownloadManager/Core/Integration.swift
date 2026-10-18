@@ -131,11 +131,18 @@ final class BrowserBridgeServer {
 
     private func respond(to request: Request, on connection: NWConnection) {
         var status = "200 OK"
-        var body: [String: Any] = ["ok": true]
+        var body: [String: Any]? = ["ok": true]
+        var message: Message?
+        let origin = request.headers["origin"]
+        let allowed = isAllowedOrigin(origin)
 
-        if !isAllowedOrigin(request.headers["origin"]) {
+        if !allowed {
             status = "403 Forbidden"
             body = ["ok": false, "error": "forbidden origin"]
+        } else if request.method == "OPTIONS" {
+            // CORS / Private Network Access preflight from the extension (some browsers, e.g. Brave, send one).
+            status = "204 No Content"
+            body = nil
         } else if request.method == "GET" && request.path.hasPrefix("/ping") {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
             body = ["ok": true, "app": "MacOS Download Manager", "version": version]
@@ -145,10 +152,10 @@ final class BrowserBridgeServer {
                 status = "415 Unsupported Media Type"
                 body = ["ok": false, "error": "json required"]
             } else if let json = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] {
-                if request.path.hasPrefix("/download"), let message = downloadMessage(json) {
-                    DispatchQueue.main.async { self.onMessage?(message) }
-                } else if request.path.hasPrefix("/links"), let message = linksMessage(json) {
-                    DispatchQueue.main.async { self.onMessage?(message) }
+                if request.path.hasPrefix("/download"), let m = downloadMessage(json) {
+                    message = m
+                } else if request.path.hasPrefix("/links"), let m = linksMessage(json) {
+                    message = m
                 } else {
                     status = "400 Bad Request"
                     body = ["ok": false, "error": "invalid request"]
@@ -162,16 +169,31 @@ final class BrowserBridgeServer {
             body = ["ok": false]
         }
 
-        let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
+        let payload = body.flatMap { try? JSONSerialization.data(withJSONObject: $0) } ?? Data()
         var head = "HTTP/1.1 \(status)\r\n"
-        head += "Content-Type: application/json\r\n"
+        if allowed, let origin, !origin.isEmpty {
+            head += "Access-Control-Allow-Origin: \(origin)\r\n"
+            head += "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+            head += "Access-Control-Allow-Headers: Content-Type\r\n"
+            head += "Access-Control-Allow-Private-Network: true\r\n"
+            head += "Access-Control-Max-Age: 600\r\n"
+            head += "Vary: Origin\r\n"
+        }
+        if body != nil { head += "Content-Type: application/json\r\n" }
         head += "Content-Length: \(payload.count)\r\n"
         head += "Cache-Control: no-store\r\n"
         head += "Connection: close\r\n\r\n"
         var response = Data(head.utf8)
         response.append(payload)
-        connection.send(content: response, completion: .contentProcessed { _ in
-            connection.cancel()
+        // Send the answer completely (with a clean end of stream) before closing, so the browser always
+        // receives it; only then hand the link to the app.
+        let received = message
+        connection.send(content: response, contentContext: .finalMessage, isComplete: true,
+                        completion: .contentProcessed { [weak self] _ in
+            if let received {
+                DispatchQueue.main.async { self?.onMessage?(received) }
+            }
+            self?.queue.asyncAfter(deadline: .now() + 2) { connection.cancel() }
         })
     }
 

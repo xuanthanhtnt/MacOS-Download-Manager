@@ -40,20 +40,11 @@ async function cookiesFor(url) {
   }
 }
 
-async function post(path, payload) {
-  const { port } = await settings();
+async function fetchWithTimeout(url, options, ms) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2500);
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
-    const res = await fetch(endpoint(port, path), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    return res.ok;
-  } catch (e) {
-    return false;
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
@@ -62,10 +53,29 @@ async function post(path, payload) {
 async function ping() {
   const { port } = await settings();
   try {
-    const res = await fetch(endpoint(port, "/ping"), { method: "GET" });
+    const res = await fetchWithTimeout(endpoint(port, "/ping"), { method: "GET" }, 2000);
     return res.ok;
   } catch (e) {
     return false;
+  }
+}
+
+/**
+ * Sends a request to the app. Returns true when the app accepted it.
+ * If the answer is lost (network error, timeout) but the app is running, the request reached it:
+ * the app ignores repeats of the same link, so the browser's copy can safely be stopped.
+ */
+async function post(path, payload) {
+  const { port } = await settings();
+  try {
+    const res = await fetchWithTimeout(endpoint(port, path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }, 5000);
+    return res.ok;
+  } catch (e) {
+    return await ping();
   }
 }
 

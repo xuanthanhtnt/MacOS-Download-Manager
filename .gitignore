@@ -6,3 +6,5 @@ xcuserdata/
 DerivedData/
 .DS_Store
 *.dmg
+Tests/extension/node_modules/
+Tests/extension/package-lock.json

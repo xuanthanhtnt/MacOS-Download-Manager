@@ -51,6 +51,14 @@ WEB_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 -X POST \
   -H "Content-Type: application/json" -H "Origin: https://evil.example" \
   -d '{"url":"https://example.com/x.iso"}' http://127.0.0.1:9614/download || true)
 echo "extension POST: $EXT_CODE, web page POST: $WEB_CODE"
+PREFLIGHT=$(curl -s -i -m 5 -X OPTIONS -H "Origin: chrome-extension://smoketest" \
+  -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Private-Network: true" \
+  http://127.0.0.1:9614/download || true)
+if ! grep -q " 204" <<<"$PREFLIGHT" || ! grep -qi "Access-Control-Allow-Origin: chrome-extension://smoketest" <<<"$PREFLIGHT"; then
+  echo "$PREFLIGHT" > preflight.txt
+  annotate error "Browser integration preflight (CORS) check failed" preflight.txt
+  STATUS=1
+fi
 if [[ "$PING" != *"MacOS Download Manager"* || "$EXT_CODE" != "200" || "$WEB_CODE" != "403" ]]; then
   echo "ping=$PING ext=$EXT_CODE web=$WEB_CODE" > bridge.txt
   annotate error "Browser integration server check failed" bridge.txt

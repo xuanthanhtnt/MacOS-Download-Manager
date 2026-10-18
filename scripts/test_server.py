@@ -36,6 +36,25 @@ class Handler(BaseHTTPRequestHandler):
     def handle_request(self, head):
         global busy_count
         path = self.path.split("?")[0]
+        if path == "/page":
+            # Test page with one download link: /page?href=<url>
+            from urllib.parse import parse_qs, urlparse
+            href = parse_qs(urlparse(self.path).query).get("href", ["/files/big.bin"])[0]
+            body = f'<!doctype html><html><body><a id="dl" href="{href}">download</a></body></html>'.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if not head:
+                self.wfile.write(body)
+            return
+        if path.startswith("/redirect/"):
+            # Like go.microsoft.com/fwlink: an address without the file name that redirects to the file
+            self.send_response(302)
+            self.send_header("Location", "/files/" + os.path.basename(path))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         parts = path.strip("/").split("/", 1)
         if len(parts) != 2:
             return self.send_error(404)

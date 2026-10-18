@@ -60,6 +60,21 @@ jobs:
       - name: Smoke test (launch the app, check the main thread)
         run: ./scripts/smoke_test.sh
 
+      - name: Browser extension test (Chromium)
+        run: |
+          FIXTURES="$RUNNER_TEMP/mdm-ext-fixtures"
+          ./scripts/test_fixtures.sh "$FIXTURES"
+          python3 scripts/test_server.py "$FIXTURES" 8765 &
+          SERVER_PID=$!
+          sleep 1
+          cd Tests/extension
+          npm install --no-audit --no-fund --loglevel=error
+          set +e
+          MDM_HEADLESS=1 MDM_TEST_SERVER=http://127.0.0.1:8765 node test_extension.mjs
+          status=$?
+          kill $SERVER_PID || true
+          exit $status
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

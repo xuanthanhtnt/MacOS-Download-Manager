@@ -8,6 +8,7 @@ mkdir -p "$DIR/files" "$DIR/hls"
 
 # 6 MB random file for multi-connection / resume tests
 head -c 6000000 /dev/urandom > "$DIR/files/big.bin"
+cp "$DIR/files/big.bin" "$DIR/files/big.iso"
 
 # HLS: 5 segments encrypted with AES-128 (IV derived from the media sequence number)
 openssl rand 16 > "$DIR/hls/key.bin"
