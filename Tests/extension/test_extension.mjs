@@ -77,7 +77,9 @@ const downloads = fs.mkdtempSync(path.join(os.tmpdir(), "mdm-downloads-"));
 fs.mkdirSync(path.join(profile, "Default"), { recursive: true });
 fs.writeFileSync(path.join(profile, "Default", "Preferences"), JSON.stringify({
   download: { default_directory: downloads, prompt_for_download: process.env.MDM_PROMPT === "1", directory_upgrade: true },
-  profile: { default_content_setting_values: { automatic_downloads: 1 } }
+  profile: { default_content_setting_values: { automatic_downloads: 1 } },
+  // Like the user's browser: "Load unpacked" needs Developer mode, and Chrome reloads unpacked extensions only with it.
+  extensions: { ui: { developer_mode: true } }
 }));
 
 const browser = await puppeteer.launch({
