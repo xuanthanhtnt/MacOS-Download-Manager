@@ -38,6 +38,9 @@ jobs:
           status=${PIPESTATUS[0]}
           kill $SERVER_PID || true
           grep -E "Test Case .*(passed|failed|skipped)|error:" test.log | tail -40
+          # Surface failures as annotations (readable through the API without log access)
+          grep -E "error:|failed \(|XCTAssert" test.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+          grep -E "Test Case .*(passed|skipped)" test.log | sed 's/^/::notice::/' | head -30
           exit $status
 
       - name: Build MacOS Download Manager.app and DMG
@@ -48,7 +51,11 @@ jobs:
             export VERSION="$(cat VERSION)"
           fi
           export BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
-          ./scripts/build_app.sh
+          set -o pipefail
+          ./scripts/build_app.sh 2>&1 | tee build.log || {
+            grep -E "error:" build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
