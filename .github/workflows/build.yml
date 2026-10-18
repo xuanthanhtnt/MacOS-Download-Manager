@@ -61,8 +61,6 @@ jobs:
         run: ./scripts/smoke_test.sh
 
       - name: Browser extension test (Chromium)
-        # Not gating yet: reports problems as annotations while the test runs in on macOS runners.
-        continue-on-error: true
         run: |
           FIXTURES="$RUNNER_TEMP/mdm-ext-fixtures"
           ./scripts/test_fixtures.sh "$FIXTURES"
