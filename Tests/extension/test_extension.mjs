@@ -188,26 +188,24 @@ try {
   fs.writeFileSync(manifestFile, JSON.stringify(updated, null, 2));
   shippedExtension = newVersion;
   appRunning = true;
-  const loadedVersions = async () => {
-    const result = [];
-    for (const t of browser.targets().filter((t) => t.type() === "service_worker" && t.url().startsWith("chrome-extension://"))) {
-      try {
-        const w = await Promise.race([t.worker(), sleep(3000).then(() => null)]);
-        if (w) result.push(await Promise.race([w.evaluate(() => chrome.runtime.getManifest().version), sleep(3000).then(() => "?")]));
-      } catch (e) { /* worker restarting */ }
-    }
-    return result;
-  };
   try {
     const w = await worker.worker();
     await Promise.race([w.evaluate(() => ping()), sleep(5000)]);
   } catch (e) { /* the worker may already be reloading */ }
-  let versions = [];
-  for (let i = 0; i < 20 && !versions.includes(newVersion); i++) {
-    await sleep(1000);
-    versions = await loadedVersions();
+  // Seen from outside: after the reload, requests carry the new version (button click on a fresh page).
+  let reloaded = false;
+  for (let i = 0; i < 10 && !reloaded; i++) {
+    await sleep(2000);
+    const p = await browser.newPage();
+    try {
+      await p.goto(`${SERVER}/watch?v=reload${i}`);
+      const b = await p.waitForSelector("#mdm-download-video", { timeout: 4000 }).catch(() => null);
+      if (b) { await b.click(); await sleep(1500); }
+    } catch (e) { /* page closed during the reload */ }
+    await p.close().catch(() => {});
+    reloaded = requestPaths.some((r) => r.includes(`ext=${newVersion}`));
   }
-  check(versions.includes(newVersion), `extension reloaded itself after an update on disk (loaded: ${JSON.stringify(versions)})`);
+  check(reloaded, `extension reloaded itself after an update on disk (last request: ${requestPaths[requestPaths.length - 1]})`);
 } catch (e) {
   failures++;
   console.log(`::error::Extension test crashed: ${e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e}`);

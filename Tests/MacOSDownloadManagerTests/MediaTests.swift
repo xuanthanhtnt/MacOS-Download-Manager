@@ -378,7 +378,7 @@ final class MediaTests: XCTestCase {
         item.mediaFormat = hd.spec
         let temp = (workDir as NSString).appendingPathComponent("HLS test.mp4.mdmpart")
         let config = EngineConfig(maxConnections: 4, retries: 2, timeout: 30, headers: [:], credential: nil, proxy: nil)
-        let result: (ext: String?, error: String?, parts: Int) = await withCheckedContinuation { continuation in
+        let result: (ext: String?, failure: String?, parts: Int) = await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 let engine = MediaDownloadEngine(item: item, tempPath: temp, config: config, cookiesBrowser: "", maxHeight: 0)
                 var resumed = false
@@ -395,7 +395,7 @@ final class MediaTests: XCTestCase {
                 engine.start()
             }
         }
-        XCTAssertNil(result.error)
+        XCTAssertNil(result.failure)
         XCTAssertEqual(result.ext, "mp4")
         XCTAssertEqual(result.parts, 2)
         let movie = URL(fileURLWithPath: (workDir as NSString).appendingPathComponent("hls-check.mp4"))
@@ -450,7 +450,7 @@ final class MediaTests: XCTestCase {
         item.mediaParts = [MediaPartState(formatID: "270", ext: "mp4", totalBytes: 1, downloadedBytes: 1, done: true),
                            MediaPartState(formatID: "140", ext: "m4a", totalBytes: 1, downloadedBytes: 1, done: true)]
         let config = EngineConfig(maxConnections: 4, retries: 1, timeout: 20, headers: [:], credential: nil, proxy: nil)
-        let result: (ext: String?, error: String?) = await withCheckedContinuation { continuation in
+        let result: (ext: String?, failure: String?) = await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 let engine = MediaDownloadEngine(item: item, tempPath: temp, config: config, cookiesBrowser: "", maxHeight: 0)
                 engine.extractor = { _ in throw MediaError.message("the page must not be read again") }
@@ -466,7 +466,7 @@ final class MediaTests: XCTestCase {
                 engine.start()
             }
         }
-        XCTAssertNil(result.error)
+        XCTAssertNil(result.failure)
         XCTAssertEqual(result.ext, "mp4")
         XCTAssertFalse(FileManager.default.fileExists(atPath: videoPart.path), "parts are removed after joining")
         let movie = URL(fileURLWithPath: (workDir as NSString).appendingPathComponent("check.mp4"))
@@ -511,7 +511,7 @@ final class MediaTests: XCTestCase {
         item.mediaFormat = smallest.spec
         let temp = (workDir as NSString).appendingPathComponent("yt.mp4.mdmpart")
         let config = EngineConfig(maxConnections: 4, retries: 3, timeout: 30, headers: [:], credential: nil, proxy: nil)
-        let result: (ext: String?, error: String?) = await withCheckedContinuation { continuation in
+        let result: (ext: String?, failure: String?) = await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 let engine = MediaDownloadEngine(item: item, tempPath: temp, config: config, cookiesBrowser: "", maxHeight: 0)
                 var resumed = false
@@ -526,7 +526,7 @@ final class MediaTests: XCTestCase {
                 engine.start()
             }
         }
-        if let error = result.error {
+        if let error = result.failure {
             // YouTube may refuse data-center addresses; any other failure (e.g. joining) is a real bug.
             if error.contains("bot") || error.contains("403") || error.contains("Sign in") || error.contains("unavailable") {
                 throw XCTSkip("YouTube download refused on this runner: \(error)")
