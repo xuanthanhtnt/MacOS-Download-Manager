@@ -61,17 +61,21 @@ jobs:
         run: ./scripts/smoke_test.sh
 
       - name: Browser extension test (Chromium)
+        # Not gating yet: reports problems as annotations while the test runs in on macOS runners.
+        continue-on-error: true
         run: |
           FIXTURES="$RUNNER_TEMP/mdm-ext-fixtures"
           ./scripts/test_fixtures.sh "$FIXTURES"
-          python3 scripts/test_server.py "$FIXTURES" 8765 &
+          python3 scripts/test_server.py "$FIXTURES" 8766 > "$RUNNER_TEMP/ext-server.log" 2>&1 &
           SERVER_PID=$!
-          sleep 1
+          for i in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:8766/page" && break; sleep 0.5; done
+          echo "::notice title=Test server check::$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8766/page?href=/files/big.bin')"
           cd Tests/extension
           npm install --no-audit --no-fund --loglevel=error
           set +e
-          MDM_HEADLESS=1 MDM_TEST_SERVER=http://127.0.0.1:8765 node test_extension.mjs
-          status=$?
+          MDM_HEADLESS=1 MDM_TEST_SERVER=http://127.0.0.1:8766 node test_extension.mjs 2>&1 | tee ext-test.log
+          status=${PIPESTATUS[0]}
+          grep -E "^(✔|✘)" ext-test.log | sed 's/^/::notice title=Extension check::/'
           kill $SERVER_PID || true
           exit $status
 

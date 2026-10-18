@@ -71,6 +71,7 @@ const browser = await puppeteer.launch({
     `--load-extension=${EXT}`,
     "--no-first-run",
     "--no-default-browser-check",
+    "--no-proxy-server",
     ...(process.env.MDM_NO_SANDBOX === "1" ? ["--no-sandbox"] : [])
   ]
 });
