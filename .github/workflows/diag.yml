@@ -38,7 +38,7 @@ jobs:
             ../ytdlp --no-warnings --js-runtimes deno -f $fmt -o "yt_$fmt.%(ext)s" "https://www.youtube.com/watch?v=jNQXAC9IVRw" > yt_$fmt.log 2>&1
             echo "$fmt: $(tail -1 yt_$fmt.log)" >> ../ytlog.txt
           done
-          echo "::notice title=yt-dlp::$(sed ':a;N;$!ba;s/\n/%0A/g' ../ytlog.txt)"
+          echo "::notice title=yt-dlp::$(perl -pe 's/\n/%0A/' ../ytlog.txt)"
           ls -la yt_* || true
       - name: Probe
         run: |
@@ -51,6 +51,6 @@ jobs:
           [ -f brand_dash_v.mp4 ] && ./probe merge brand_dash_v.mp4 brand_dash_a.m4a m3.mp4 >> ../probe.txt 2>&1
           V=$(ls yt_160.mp4 yt_133.mp4 yt_134.mp4 2>/dev/null | head -1); A=$(ls yt_140.m4a 2>/dev/null | head -1)
           [ -n "$V" ] && [ -n "$A" ] && ./probe merge "$V" "$A" m4.mp4 >> ../probe.txt 2>&1
-          echo "::notice title=AVFoundation::$(sed ':a;N;$!ba;s/\n/%0A/g' ../probe.txt)"
-          echo "::notice title=YouTube boxes::$(sed ':a;N;$!ba;s/\n/%0A/g' ../boxes.txt)"
+          echo "::notice title=AVFoundation::$(perl -pe 's/\n/%0A/' ../probe.txt)"
+          echo "::notice title=YouTube boxes::$(perl -pe 's/\n/%0A/' ../boxes.txt)"
           true
