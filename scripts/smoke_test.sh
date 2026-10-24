@@ -113,4 +113,31 @@ else
   STATUS=1
 fi
 pkill -x MacOSDownloadManager 2>/dev/null
+sleep 2
+
+# Quit from the Dock / ⌘Q keeps the app running in the menu bar; a quit request from another app
+# (Finder replacing the app during an update, scripts) really quits it.
+QREPORT="${RUNNER_TEMP:-/tmp}/mdm-quit.txt"
+rm -f "$QREPORT"
+open --env "MDM_SELFTEST_QUIT=$QREPORT" "$APP" 2>/dev/null || { MDM_SELFTEST_QUIT="$QREPORT" "$BIN" > quit.log 2>&1 & }
+for i in $(seq 1 40); do [ -s "$QREPORT" ] && break; sleep 0.5; done
+if [ -s "$QREPORT" ] && grep -q "^cmdq-still-running=yes" "$QREPORT" && grep -q "^policy-after-quit=accessory" "$QREPORT" \
+   && grep -q "^windows-after-quit=0" "$QREPORT" && grep -q "^policy-after-reopen=regular" "$QREPORT"; then
+  annotate notice "Quit keeps running in the menu bar" "$QREPORT"
+else
+  [ -s "$QREPORT" ] || echo "no report: the app probably quit on ⌘Q" > "$QREPORT"
+  annotate error "Quit did not move the app to the menu bar" "$QREPORT"
+  STATUS=1
+fi
+OUT=$(osascript -e 'tell application id "io.github.xuanthanhtnt.MacOSDownloadManager" to quit' 2>&1)
+for i in $(seq 1 20); do pgrep -x MacOSDownloadManager >/dev/null || break; sleep 0.5; done
+if ! pgrep -x MacOSDownloadManager >/dev/null; then
+  echo "::notice title=Quit request from another app::the app quit (as needed for updates)"
+elif echo "$OUT" | grep -q -- "-1743\|-600\|Not authori"; then
+  echo "::notice title=Quit request from another app::not testable on this runner: $OUT"
+else
+  echo "::error title=Quit request from another app::the app kept running: $OUT"
+  STATUS=1
+fi
+pkill -x MacOSDownloadManager 2>/dev/null
 exit $STATUS

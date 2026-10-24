@@ -82,6 +82,8 @@ struct AppSettingsData: Codable, Equatable {
     var showCompleteDialog: Bool = true
     var monitorClipboard: Bool = true
     var showMenuBarIcon: Bool = true
+    /// Quit from the Dock / ⌘Q keeps the app running in the menu bar; the menu bar's Quit really quits.
+    var keepRunningInMenuBar: Bool = true
     var showDropTarget: Bool = false
     var preventSleep: Bool = true
     var language: AppLanguage = .system

@@ -25,7 +25,20 @@ struct MacOSDownloadManagerApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set by the menu bar's Quit (and the scheduler, the self-test, log out/shut down): really quit.
+    static var reallyQuit = false
+
+    static func quitCompletely() {
+        reallyQuit = true
+        NSApp.terminate(nil)
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Log out, restart and shut down must never be held up by the app.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willPowerOffNotification,
+                                                          object: nil, queue: .main) { _ in
+            AppDelegate.reallyQuit = true
+        }
         NSAppleEventManager.shared().setEventHandler(self,
                                                      andSelector: #selector(handleGetURL(_:withReplyEvent:)),
                                                      forEventClass: AEEventClass(kInternetEventClass),
@@ -39,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let target = ProcessInfo.processInfo.environment["MDM_SELFTEST_YTDLP"], !target.isEmpty {
             SelfTest.runVideoTools(reportTo: target)
         }
+        if let target = ProcessInfo.processInfo.environment["MDM_SELFTEST_QUIT"], !target.isEmpty {
+            SelfTest.runQuitBehaviour(reportTo: target)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -48,6 +64,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !AppDelegate.reallyQuit, AppDelegate.quitMeansMenuBar() else { return .terminateNow }
+        WindowManager.shared.moveToMenuBar()
+        return .terminateCancel
+    }
+
+    /// ⌘Q, the app menu's Quit and the Dock's Quit keep the app running in the menu bar (an option, on by
+    /// default). Quit requests from the system or other apps (Finder replacing the app during an update,
+    /// installers, scripts) really quit.
+    static func quitMeansMenuBar() -> Bool {
+        let data = SettingsStore.shared.data
+        guard data.keepRunningInMenuBar, data.showMenuBarIcon else { return false }
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == AEEventClass(kCoreEventClass),
+              event.eventID == AEEventID(kAEQuitApplication) else {
+            return true // ⌘Q / app menu: no Apple event
+        }
+        if let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)), reason.enumCodeValue != 0 {
+            return false // log out, restart, shut down
+        }
+        guard let sender = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr)) else { return false }
+        let app = NSRunningApplication(processIdentifier: pid_t(sender.int32Value))
+        return app?.bundleIdentifier == "com.apple.dock"
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -183,6 +224,31 @@ enum ImportExport {
 /// CI check: installs the video tools and runs yt-dlp from inside the real app, the way users do,
 /// then writes the result to a file and quits. Enabled only by the MDM_SELFTEST_YTDLP variable.
 enum SelfTest {
+    /// CI check of "Quit keeps running in the menu bar": quits like ⌘Q, reports whether the app is still
+    /// running without a Dock icon, reopens the window, then waits for the test to ask it to quit from outside.
+    static func runQuitBehaviour(reportTo path: String) {
+        func titledWindows() -> Int { NSApp.windows.filter { $0.isVisible && $0.styleMask.contains(.titled) }.count }
+        func policy() -> String {
+            switch NSApp.activationPolicy() {
+            case .regular: return "regular"
+            case .accessory: return "accessory"
+            default: return "prohibited"
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            var report = "windows-before=\(titledWindows())\npolicy-before=\(policy())\n"
+            NSApp.terminate(nil) // what ⌘Q does
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                report += "cmdq-still-running=yes\npolicy-after-quit=\(policy())\nwindows-after-quit=\(titledWindows())\n"
+                WindowManager.shared.showMain()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    report += "policy-after-reopen=\(policy())\nwindows-after-reopen=\(titledWindows())\n"
+                    try? report.write(toFile: path, atomically: true, encoding: .utf8)
+                }
+            }
+        }
+    }
+
     static func runVideoTools(reportTo path: String) {
         Task.detached {
             var report = ""
@@ -218,7 +284,7 @@ enum SelfTest {
                 report = "error=\(error.localizedDescription)\n"
             }
             try? report.write(toFile: path, atomically: true, encoding: .utf8)
-            await MainActor.run { NSApp.terminate(nil) }
+            await MainActor.run { AppDelegate.quitCompletely() }
         }
     }
 

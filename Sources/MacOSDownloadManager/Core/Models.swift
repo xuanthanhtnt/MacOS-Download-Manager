@@ -43,6 +43,8 @@ struct MediaPartState: Codable, Equatable {
     var downloadedBytes: Int64 = 0
     var segments: [Segment] = []
     var done: Bool = false
+    /// true: plain file downloaded by the app with several connections; false: downloaded by yt-dlp (HLS…).
+    var direct: Bool? = nil
 }
 
 // MARK: - Segment (one byte range downloaded by one connection)
@@ -193,6 +195,11 @@ struct RuntimeStats: Equatable {
     var speed: Double = 0
     var connections: Int = 0
     var activeSegments: [Int] = []
+    /// Video downloads: the active parts and connections of each stream.
+    var mediaActive: [[Int]] = []
+    var mediaConnections: [Int] = []
+    /// A short note about what the download is waiting for (shown as the status).
+    var note: String? = nil
 
     func eta(for item: DownloadItem) -> Double? {
         guard speed > 1, item.totalBytes > 0 else { return nil }

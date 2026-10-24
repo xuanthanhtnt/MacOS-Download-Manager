@@ -1,5 +1,13 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.6
+- **Video YouTube tải bằng nhiều kết nối như IDM, và nhìn thấy được:** cửa sổ tiến trình hiện thanh chia đoạn (mỗi kết nối một đoạn, xanh dương = đang nhận) và số kết nối của từng luồng hình/tiếng. Luồng hình dùng đủ số kết nối, luồng tiếng (nhỏ) dùng vài kết nối.
+- Luồng là tệp thường luôn được app tải đa kết nối, kể cả khi luồng còn lại phải để yt-dlp tải (HLS) – hai việc chạy song song.
+- Khi máy chủ từ chối bớt kết nối (403/429/503), app giảm tạm thời rồi **tự tăng lại** sau 15 giây (trước đây giảm luôn tới hết lượt tải).
+- Chờ đúng thời điểm YouTube cho phép tải (khi video có quảng cáo đầu) thay vì bị từ chối.
+- Nhật ký `~/Library/Logs/MacOS Download Manager/video.log` ghi số kết nối của từng luồng.
+- **Thoát từ Dock hoặc ⌘Q chỉ đóng cửa sổ, app vẫn chạy nền trên thanh menu** (lượt tải tiếp tục); chỉ nút Thoát trên thanh menu mới tắt hẳn. Đăng xuất, khởi động lại, tắt máy và cập nhật app vẫn thoát bình thường. Có thể tắt tuỳ chọn này trong Tùy chọn → Chung.
+
 ### Có gì mới ở 1.1.5
 - Khi ghép hình và tiếng thất bại, cửa sổ tiến trình **hiện đầy đủ lý do** (lỗi của ffmpeg và của macOS, định dạng và dung lượng từng phần) thay vì chỉ dòng đầu; lỗi cũng được ghi vào `~/Library/Logs/MacOS Download Manager/video.log`.
 - Kiểm tra **dung lượng trống** trước khi ghép và báo rõ nếu ổ đĩa không đủ chỗ.

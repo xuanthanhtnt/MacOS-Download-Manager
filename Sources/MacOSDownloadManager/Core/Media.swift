@@ -24,11 +24,13 @@ struct YTDLFormat: Decodable, Hashable {
     var formatNote: String?
     var httpHeaders: [String: String]?
     var dynamicRange: String?
+    /// Unix time from which the stream links work (YouTube makes players wait while an ad would play).
+    var availableAt: Double?
 
     enum CodingKeys: String, CodingKey {
         case formatID = "format_id", ext, url, proto = "protocol", vcodec, acodec, width, height, fps, tbr, abr
         case filesize, filesizeApprox = "filesize_approx", formatNote = "format_note"
-        case httpHeaders = "http_headers", dynamicRange = "dynamic_range"
+        case httpHeaders = "http_headers", dynamicRange = "dynamic_range", availableAt = "available_at"
     }
 
     init(formatID: String, ext: String? = nil, url: String? = nil, proto: String? = nil,
@@ -75,6 +77,7 @@ struct YTDLFormat: Decodable, Hashable {
         formatNote = str(.formatNote)
         httpHeaders = (try? c.decodeIfPresent([String: String].self, forKey: .httpHeaders)) ?? nil
         dynamicRange = str(.dynamicRange)
+        availableAt = num(.availableAt)
     }
 
     var size: Int64? {

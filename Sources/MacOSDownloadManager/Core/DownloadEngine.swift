@@ -11,6 +11,8 @@ struct EngineConfig {
     /// When set, each HTTP request asks for at most this many bytes; the connection continues with a
     /// new request afterwards. Some servers (e.g. video CDNs) slow down very large range requests.
     var maxRequestSize: Int64? = nil
+    /// When set, notable events (fewer connections after server refusals, recoveries) go to the video log.
+    var logLabel: String? = nil
 }
 
 struct EngineProgress {
@@ -24,6 +26,9 @@ struct EngineProgress {
     var hlsDone: [Int]? = nil
     var hlsCount: Int? = nil
     var mediaParts: [MediaPartState]? = nil
+    var mediaActive: [[Int]]? = nil
+    var mediaConnections: [Int]? = nil
+    var note: String? = nil
 }
 
 enum EngineEvent {
@@ -84,6 +89,10 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
     private var lastError: String?
     private var restarts = 0
     private var effectiveMax: Int
+    /// Last time the server refused a connection (429/503/403); the count goes back up after a quiet while.
+    private var lastRefusal: Date?
+    private var refusals = 0
+    private var peakConnections = 0
     private var stopped = false
     private var finished = false
     private var meter = SpeedMeter()
@@ -304,6 +313,9 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
     private func finishDownload() {
         guard !finished else { return }
         finished = true
+        if let label = config.logLabel {
+            MediaDownloadEngine.log("\(label): done – up to \(max(peakConnections, connections.count)) connections at once, \(refusals) refused, \(segments.count) parts")
+        }
         cancelAllConnections()
         if total > 0 {
             try? file?.truncate(atOffset: UInt64(total))
@@ -369,9 +381,15 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         }
 
         if serverBusy && !connections.isEmpty {
-            // The server limits the number of connections: use fewer of them. This is not a real
-            // failure of the part (other connections are making progress), so it is not counted.
+            // The server limits the number of connections: use fewer of them for a while. This is not
+            // a real failure of the part (other connections are making progress), so it is not counted.
+            let before = effectiveMax
             effectiveMax = max(1, min(effectiveMax, connections.count))
+            lastRefusal = Date()
+            refusals += 1
+            if effectiveMax != before, let label = config.logLabel {
+                MediaDownloadEngine.log("\(label): server refused a connection (\(message)) – \(effectiveMax) connection(s) for now")
+            }
             failures[c.segmentID] = n - 1
         } else if n > config.retries {
             // Give up on this part for now; the others continue.
@@ -600,6 +618,13 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         t.setEventHandler { [weak self] in
             guard let self, !self.stopped, !self.finished else { return }
             self.currentSpeed = self.meter.tick()
+            self.peakConnections = max(self.peakConnections, self.connections.count)
+            // After 15 s without refusals, try one more connection again (IDM does the same).
+            if self.effectiveMax < self.config.maxConnections, let last = self.lastRefusal, Date().timeIntervalSince(last) > 15 {
+                self.effectiveMax += 1
+                self.lastRefusal = Date()
+                self.fillConnections()
+            }
             let snap = self.snapshot()
             DispatchQueue.main.async { self.onEvent?(.progress(snap)) }
         }

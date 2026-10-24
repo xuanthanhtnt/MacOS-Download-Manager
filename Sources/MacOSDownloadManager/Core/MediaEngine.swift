@@ -28,6 +28,9 @@ final class MediaDownloadEngine: DownloadEngine {
     private var subEngines: [Int: HTTPDownloadEngine] = [:]
     private var partSpeed: [Int: Double] = [:]
     private var partConnections: [Int: Int] = [:]
+    private var partActive: [Int: [Int]] = [:]
+    private var ytdlpPart: Int?
+    private var note: String?
     private var task: Task<Void, Never>?
     private var process: Process?
     private var processProgress: (downloaded: Int64, total: Int64, speed: Double)?
@@ -144,13 +147,43 @@ final class MediaDownloadEngine: DownloadEngine {
         for i in parts.indices where !fm.fileExists(atPath: partPath(i)) && (parts[i].done || parts[i].downloadedBytes > 0) {
             parts[i] = MediaPartState(formatID: parts[i].formatID, ext: parts[i].ext)
         }
-        if chosen.direct {
-            for i in parts.indices where !parts[i].done { startPart(i) }
+        for i in parts.indices { parts[i].direct = partFormats[i].isDirectHTTP }
+
+        // YouTube: the stream links only work from a given moment (while an ad would play). Requests
+        // made earlier are refused, so wait like yt-dlp does.
+        let wait = (partFormats.compactMap(\.availableAt).max() ?? 0) - Date().timeIntervalSince1970
+        if wait > 0.5, parts.contains(where: { !$0.done && $0.direct == true }) {
+            let seconds = Int(wait.rounded(.up))
+            note = String(format: String(localized: "Waiting %d s, as YouTube requires before the download can start…"), seconds)
+            Self.log("\(item.fileName): waiting \(seconds) s (YouTube available_at)")
             onEvent?(.progress(snapshot()))
-            checkAllDone()
-        } else {
-            runNextWithYtdlp()
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.5) { [weak self] in
+                guard let self, !self.stopped, !self.finished else { return }
+                self.note = nil
+                self.startStreams()
+            }
+            return
         }
+        startStreams()
+    }
+
+    /// Plain files are downloaded by the app with several connections each; the others (HLS…) by
+    /// yt-dlp, one after the other, at the same time as the plain ones.
+    private func startStreams() {
+        for i in parts.indices where !parts[i].done && parts[i].direct == true { startPart(i) }
+        onEvent?(.progress(snapshot()))
+        if parts.contains(where: { !$0.done && $0.direct != true }) {
+            runNextWithYtdlp()
+        } else {
+            checkAllDone()
+        }
+    }
+
+    /// Connections for one stream: the video gets the full number, the much smaller audio a few.
+    private func connections(forPart i: Int) -> Int {
+        let full = max(1, config.maxConnections)
+        guard parts.count > 1, i > 0 else { return full }
+        return max(1, min(4, full / 2))
     }
 
     private static func cleanExt(_ ext: String?) -> String {
@@ -193,6 +226,10 @@ final class MediaDownloadEngine: DownloadEngine {
         }
         cfg.headers = headers
         cfg.maxRequestSize = 10 * 1024 * 1024
+        cfg.maxConnections = connections(forPart: i)
+        let name = parts.count > 1 ? (i == 0 ? "video" : "audio") : "stream"
+        cfg.logLabel = "\(item.fileName) [\(name) \(format.formatID)]"
+        Self.log("\(cfg.logLabel ?? ""): app download, up to \(cfg.maxConnections) connections, \(Fmt.bytes(max(0, parts[i].totalBytes))) known")
 
         let engine = HTTPDownloadEngine(item: sub, tempPath: partPath(i), config: cfg)
         engine.onEvent = { [weak self, weak engine] event in
@@ -213,6 +250,7 @@ final class MediaDownloadEngine: DownloadEngine {
             if p.total > 0 { parts[i].totalBytes = p.total }
             partSpeed[i] = p.speed
             partConnections[i] = p.connections
+            partActive[i] = p.activeSegments
             if !stopped && !finished { onEvent?(.progress(snapshot())) }
         case .assembling:
             break
@@ -222,6 +260,7 @@ final class MediaDownloadEngine: DownloadEngine {
             subEngines[i] = nil
             partSpeed[i] = 0
             partConnections[i] = 0
+            partActive[i] = []
             if subEngines.isEmpty && stopped { onEvent?(.stopped(snapshot())) }
         case .finished:
             parts[i].done = true
@@ -230,6 +269,7 @@ final class MediaDownloadEngine: DownloadEngine {
             subEngines[i] = nil
             partSpeed[i] = 0
             partConnections[i] = 0
+            partActive[i] = []
             checkAllDone()
         case .failed(let message):
             subEngines[i] = nil
@@ -240,11 +280,13 @@ final class MediaDownloadEngine: DownloadEngine {
     // MARK: Streams yt-dlp downloads itself (HLS/DASH fragments, …)
 
     private func runNextWithYtdlp() {
-        guard !stopped, !finished else { return }
-        guard let i = parts.indices.first(where: { !parts[$0].done }) else {
+        guard !stopped, !finished, ytdlpPart == nil else { return }
+        guard let i = parts.indices.first(where: { !parts[$0].done && parts[$0].direct != true }) else {
             checkAllDone()
             return
         }
+        ytdlpPart = i
+        Self.log("\(item.fileName) [part \(i) \(parts[i].formatID)]: downloaded by yt-dlp (\(partFormats.indices.contains(i) ? partFormats[i].proto ?? "?" : "?"), \(max(1, min(16, config.maxConnections))) fragments at a time)")
         let template = "\(tempPath).part\(i).%(ext)s"
         let args = MediaTools.shared.baseArguments(cookiesBrowser: cookiesBrowser) + [
             "-f", parts[i].formatID,
@@ -295,6 +337,7 @@ final class MediaDownloadEngine: DownloadEngine {
                 guard let self else { return }
                 self.process = nil
                 self.processProgress = nil
+                self.ytdlpPart = nil
                 if self.stopped {
                     return
                 }
@@ -464,9 +507,12 @@ final class MediaDownloadEngine: DownloadEngine {
         }
         var speed = partSpeed.values.reduce(0, +)
         var connections = partConnections.values.reduce(0, +)
+        var perPart = parts.indices.map { partConnections[$0] ?? 0 }
         if let p = processProgress {
-            speed = p.speed
-            connections = max(connections, 1)
+            speed += p.speed
+            let fragments = max(1, min(16, config.maxConnections))
+            connections += fragments
+            if let i = ytdlpPart, perPart.indices.contains(i) { perPart[i] = fragments }
         }
         return EngineProgress(downloaded: downloaded,
                               total: total,
@@ -475,6 +521,9 @@ final class MediaDownloadEngine: DownloadEngine {
                               connections: connections,
                               activeSegments: [],
                               resumable: true,
-                              mediaParts: parts)
+                              mediaParts: parts,
+                              mediaActive: parts.indices.map { partActive[$0] ?? [] },
+                              mediaConnections: perPart,
+                              note: note)
     }
 }

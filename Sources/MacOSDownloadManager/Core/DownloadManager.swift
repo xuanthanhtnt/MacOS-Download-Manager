@@ -457,7 +457,9 @@ final class DownloadManager: ObservableObject {
             if items[i].status == .connecting && (p.downloaded > 0 || p.connections > 0) {
                 items[i].status = .downloading
             }
-            stats[id] = RuntimeStats(speed: p.speed, connections: p.connections, activeSegments: p.activeSegments)
+            stats[id] = RuntimeStats(speed: p.speed, connections: p.connections, activeSegments: p.activeSegments,
+                                     mediaActive: p.mediaActive ?? [], mediaConnections: p.mediaConnections ?? [],
+                                     note: p.note)
             scheduleSave()
 
         case .assembling:

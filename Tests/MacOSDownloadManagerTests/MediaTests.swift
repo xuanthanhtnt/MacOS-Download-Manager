@@ -272,6 +272,57 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(counts.duration, 3, accuracy: 0.4)
     }
 
+    /// Like IDM: the video stream is split between several connections, the small audio stream gets a
+    /// few, and the window gets every connection's part (segments) and the number of connections.
+    func testVideoStreamsUseSeveralConnections() throws {
+        guard let server = ProcessInfo.processInfo.environment["MDM_TEST_SERVER"] else {
+            throw XCTSkip("Integration test server not configured")
+        }
+        let info = YTDLInfo(title: "Connections", formats: [
+            YTDLFormat(formatID: "137", ext: "mp4", url: server + "/slow/big.bin", proto: "https",
+                       vcodec: "avc1.640028", acodec: "none", height: 1080, tbr: 2500),
+            YTDLFormat(formatID: "140", ext: "m4a", url: server + "/slow/big.iso", proto: "https",
+                       vcodec: "none", acodec: "mp4a.40.2", abr: 128)
+        ])
+        let workDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("mdm-conn-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(atPath: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: workDir) }
+        var item = DownloadItem(url: URL(string: "https://www.youtube.com/watch?v=conn")!, fileName: "Connections.mp4", directory: workDir)
+        item.kind = .media
+        item.mediaFormat = "137+140"
+        let config = EngineConfig(maxConnections: 8, minSplitSize: 64 * 1024, retries: 2, timeout: 20,
+                                  headers: [:], credential: nil, proxy: nil)
+        let engine = MediaDownloadEngine(item: item, tempPath: (workDir as NSString).appendingPathComponent("Connections.mp4.mdmpart"),
+                                         config: config, cookiesBrowser: "", maxHeight: 0)
+        engine.extractor = { _ in info }
+        var maxVideo = 0, maxAudio = 0, maxActive = 0, sawDirect = false, stopping = false
+        let done = expectation(description: "stopped")
+        engine.onEvent = { event in
+            switch event {
+            case .progress(let p):
+                if let c = p.mediaConnections, c.count == 2 {
+                    maxVideo = max(maxVideo, c[0])
+                    maxAudio = max(maxAudio, c[1])
+                }
+                if let a = p.mediaActive, a.count == 2 { maxActive = max(maxActive, a[0].count) }
+                if let parts = p.mediaParts, parts.count == 2, parts.allSatisfy({ $0.direct == true }) { sawDirect = true }
+                if maxVideo >= 4 && maxActive >= 4 && !stopping {
+                    stopping = true
+                    engine.stop()
+                }
+            case .stopped, .finished, .failed: done.fulfill()
+            default: break
+            }
+        }
+        engine.start()
+        wait(for: [done], timeout: 90)
+        print("MDM-NOTE connections: video up to \(maxVideo), audio up to \(maxAudio), video segments active \(maxActive)")
+        XCTAssertTrue(sawDirect, "both streams downloaded by the app itself")
+        XCTAssertGreaterThanOrEqual(maxVideo, 4, "the video stream uses several connections")
+        XCTAssertGreaterThanOrEqual(maxActive, 4, "the window gets each connection's part")
+        XCTAssertLessThanOrEqual(maxAudio, 4, "the audio stream uses a few connections")
+    }
+
     private final class CountsBox {
         var counts: (video: Int, audio: Int, duration: Double)?
         var error: Error?

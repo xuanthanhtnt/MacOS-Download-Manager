@@ -80,10 +80,11 @@ struct MenuBarView: View {
                 }
                 Spacer()
                 Button {
-                    NSApp.terminate(nil)
+                    AppDelegate.quitCompletely()
                 } label: {
                     Label("Quit", systemImage: "power")
                 }
+                .help(String(localized: "Quit MacOS Download Manager completely (downloads stop)"))
             }
         }
         .padding(14)

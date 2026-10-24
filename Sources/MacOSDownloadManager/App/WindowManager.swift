@@ -21,6 +21,8 @@ final class WindowManager {
                                 autosaveName: String? = nil,
                                 size: NSSize? = nil,
                                 @ViewBuilder content: () -> Content) {
+        // Back from running in the menu bar only: show the Dock icon and the app menu again.
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         if let existing = windows[key] {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -63,6 +65,16 @@ final class WindowManager {
 
     func close(_ key: String) {
         windows[key]?.close()
+    }
+
+    /// "Quit" from the Dock or with ⌘Q: close the windows and keep running in the menu bar (like IDM in
+    /// the tray). Downloads continue; the floating drop target stays if it is turned on.
+    func moveToMenuBar() {
+        for window in windows.values { window.close() }
+        for window in NSApp.windows where window.isVisible && window !== dropPanel && window.styleMask.contains(.titled) {
+            window.orderOut(nil)
+        }
+        NSApp.setActivationPolicy(.accessory)
     }
 
     func isOpen(_ key: String) -> Bool {

@@ -284,7 +284,7 @@ struct CountdownView: View {
         WindowManager.shared.close("countdown")
         switch action {
         case .none: break
-        case .quitApp: NSApp.terminate(nil)
+        case .quitApp: AppDelegate.quitCompletely()
         case .sleep: SystemActions.sleepMac()
         case .shutdown:
             DownloadManager.shared.prepareForTermination()

@@ -69,6 +69,11 @@ private struct GeneralOptions: View {
                     Text(verbatim: loginError).font(.caption).foregroundStyle(.red)
                 }
                 Toggle("Show icon in the menu bar", isOn: $settings.data.showMenuBarIcon)
+                Toggle("Keep running in the menu bar when quitting from the Dock or with ⌘Q", isOn: $settings.data.keepRunningInMenuBar)
+                    .disabled(!settings.data.showMenuBarIcon)
+                Text("Downloads continue in the background. To close the app completely, click its menu bar icon and choose Quit.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Show the floating drop target", isOn: $settings.data.showDropTarget)
                 Toggle("Keep the Mac awake while downloading", isOn: $settings.data.preventSleep)
             }

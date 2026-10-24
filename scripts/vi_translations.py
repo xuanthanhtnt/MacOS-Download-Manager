@@ -388,4 +388,10 @@ VI = {
 'These streams need ffmpeg to be joined, and it could not be downloaded. Check the connection and click Resume.': 'Cần ffmpeg để ghép các luồng này nhưng không tải được ffmpeg. Hãy kiểm tra kết nối rồi bấm Tải tiếp.',
 'could not be downloaded': 'không tải được',
 'Not enough free disk space to join video and audio: %@ needed, %@ free. Free up space, then click Resume.': 'Ổ đĩa không đủ chỗ trống để ghép hình và tiếng: cần %@, còn trống %@. Hãy giải phóng bớt dung lượng rồi bấm Tải tiếp.',
+'Quit MacOS Download Manager completely (downloads stop)': 'Thoát hẳn MacOS Download Manager (các lượt tải sẽ dừng)',
+'Keep running in the menu bar when quitting from the Dock or with ⌘Q': 'Vẫn chạy trên thanh menu khi thoát từ Dock hoặc bằng ⌘Q',
+'Downloads continue in the background. To close the app completely, click its menu bar icon and choose Quit.': 'Các lượt tải vẫn tiếp tục chạy nền. Muốn tắt hẳn app, bấm biểu tượng của app trên thanh menu rồi chọn Thoát.',
+'yt-dlp, %d fragments at a time': 'yt-dlp, %d đoạn cùng lúc',
+'%d connections': '%d kết nối',
+'Waiting %d s, as YouTube requires before the download can start…': 'Đang chờ %d giây theo yêu cầu của YouTube trước khi bắt đầu tải…',
 }

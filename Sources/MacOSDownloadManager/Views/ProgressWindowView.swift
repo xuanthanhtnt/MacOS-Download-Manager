@@ -57,6 +57,7 @@ struct DownloadProgressView: View {
 
     private var statusText: String {
         if let error = item.errorMessage, item.status == .failed { return error }
+        if let note = stats?.note, running { return note }
         switch item.status {
         case .downloading: return String(localized: "Receiving data…")
         default: return item.status.title
@@ -116,7 +117,7 @@ struct DownloadProgressView: View {
             if showDetails {
                 Divider()
                 if item.kind == .media {
-                    MediaPartsView(item: item)
+                    MediaPartsView(item: item, stats: running ? stats : nil)
                 } else if item.kind == .hls {
                     HLSPartsBar(item: item)
                         .frame(height: 14)
@@ -143,12 +144,23 @@ struct SegmentBar: View {
     let active: Set<Int>
 
     var body: some View {
+        SegmentStrip(segments: item.segments, totalBytes: item.totalBytes, active: active)
+    }
+}
+
+/// One block per connection, filled up to what that connection downloaded (blue = receiving now).
+struct SegmentStrip: View {
+    let segments: [Segment]
+    let totalBytes: Int64
+    let active: Set<Int>
+
+    var body: some View {
         Canvas { context, size in
             let rect = CGRect(origin: .zero, size: size)
             context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(Color.primary.opacity(0.08)))
-            guard item.totalBytes > 0 else { return }
-            let total = Double(item.totalBytes)
-            for segment in item.segments {
+            guard totalBytes > 0 else { return }
+            let total = Double(totalBytes)
+            for segment in segments {
                 let x = Double(segment.start) / total * size.width
                 let w = Double(segment.downloaded) / total * size.width
                 guard w > 0 else { continue }
@@ -275,6 +287,7 @@ struct CompletedView: View {
 /// Video and audio streams of a video-page download.
 private struct MediaPartsView: View {
     let item: DownloadItem
+    let stats: RuntimeStats?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -287,6 +300,9 @@ private struct MediaPartsView: View {
                         Image(systemName: index == 0 && item.mediaParts.count > 1 ? "film" : (item.mediaParts.count > 1 ? "waveform" : "doc"))
                             .foregroundStyle(.secondary)
                         Text(verbatim: label(index))
+                        if let text = connectionsText(index, part) {
+                            Text(verbatim: "· " + text).foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Text(verbatim: part.done
                              ? String(localized: "Complete")
@@ -295,8 +311,17 @@ private struct MediaPartsView: View {
                             .monospacedDigit()
                     }
                     .font(.caption)
-                    ProgressView(value: progress(part))
-                        .tint(part.done ? .green : .accentColor)
+                    if part.done {
+                        ProgressView(value: 1.0).tint(.green)
+                    } else if part.direct == true && part.totalBytes > 0 && !part.segments.isEmpty {
+                        // Like IDM: every connection's part of the stream.
+                        SegmentStrip(segments: part.segments, totalBytes: part.totalBytes,
+                                     active: Set(activeSegments(index)))
+                            .frame(height: 12)
+                    } else {
+                        ProgressView(value: progress(part))
+                            .tint(.accentColor)
+                    }
                 }
             }
             if item.status == .assembling {
@@ -305,6 +330,21 @@ private struct MediaPartsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func activeSegments(_ index: Int) -> [Int] {
+        guard let stats, stats.mediaActive.indices.contains(index) else { return [] }
+        return stats.mediaActive[index]
+    }
+
+    private func connectionsText(_ index: Int, _ part: MediaPartState) -> String? {
+        guard !part.done, let stats, stats.mediaConnections.indices.contains(index) else { return nil }
+        let count = stats.mediaConnections[index]
+        guard count > 0 else { return nil }
+        if part.direct == false {
+            return String(format: String(localized: "yt-dlp, %d fragments at a time"), count)
+        }
+        return String(format: String(localized: "%d connections"), count)
     }
 
     private func label(_ index: Int) -> String {
