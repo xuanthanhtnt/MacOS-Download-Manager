@@ -1,4 +1,4 @@
-name: Diagnose DASH joining
+name: Diagnose yt-dlp start-up
 on:
   push:
     branches: ["diag/**"]
@@ -7,42 +7,18 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: ffmpeg (same build as the app)
+      - name: Measure
         run: |
-          curl -sSL -o ff.zip https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip
-          ditto -x -k ff.zip ffbin && find ffbin -name ffmpeg -type f -exec cp {} ./ffmpeg \; && chmod +x ffmpeg && ./ffmpeg -hide_banner -version | head -1
-          df -h . | tail -1
-      - name: Make a 1.6 GB YouTube-like 1080p stream pair
-        run: |
-          set -x
-          mkdir -p big && cd big
-          # 20 s of 1080p H.264 High at ~25 Mbit/s with B-frames, keyframe every 2 s (like YouTube)
-          ../ffmpeg -v error -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 20 -c:v libx264 -preset ultrafast -profile:v high -bf 2 -g 60 -b:v 25M -pix_fmt yuv420p clip.mp4 || \
-            ../ffmpeg -v error -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 20 -c:v h264_videotoolbox -profile:v high -b:v 25M -g 60 clip.mp4
-          ls -la clip.mp4
-          for i in $(seq 1 30); do echo "file 'clip.mp4'"; done > list.txt
-          ../ffmpeg -v error -f concat -safe 0 -i list.txt -c copy long.mp4
-          # DASH single file (sidx + moof/mdat), like YouTube's 137
-          mkdir -p dv && ../ffmpeg -v error -i long.mp4 -c copy -f dash -single_file 1 -seg_duration 5 dv/m.mpd
-          mv dv/*stream0*.mp4 video.mp4 || mv "$(ls dv/*.mp4 | head -1)" video.mp4
-          printf 'dash' | dd of=video.mp4 bs=1 seek=8 conv=notrunc 2>/dev/null
-          # 10 minutes AAC 128k DASH, like YouTube's 140
-          ../ffmpeg -v error -f lavfi -i sine=frequency=440:sample_rate=44100 -t 600 -c:a aac -b:a 128k a.m4a
-          mkdir -p da && ../ffmpeg -v error -i a.m4a -c copy -f dash -single_file 1 -seg_duration 10 da/m.mpd
-          mv da/*stream0*.mp4 audio.m4a || mv "$(ls da/*.mp4 | head -1)" audio.m4a
-          ls -la video.mp4 audio.m4a
-          df -h . | tail -1
-      - name: Join like the app
-        run: |
-          cd big
-          swiftc -O ../diag/probe.swift -o probe
+          base=https://github.com/yt-dlp/yt-dlp/releases/latest/download
+          curl -sSL -o ytdlp_onefile $base/yt-dlp_macos && chmod +x ytdlp_onefile
+          curl -sSL -o onedir.zip $base/yt-dlp_macos.zip && mkdir onedir && ditto -x -k onedir.zip onedir
+          ls onedir | head; du -sh onedir ytdlp_onefile
+          EXE=$(find onedir -maxdepth 2 -type f -perm -u+x -name 'yt-dlp*' | head -1); echo "exe=$EXE"
+          t() { local s=$(python3 -c 'import time;print(time.time())'); "$@" > /dev/null 2>&1; python3 -c "import time;print(round(time.time()-$s,2))"; }
           {
-            echo "sizes: $(ls -la video.mp4 audio.m4a | awk '{print $5, $9}' | tr '\n' ' ')"
-            ./probe video.mp4 audio.m4a
-            s=$(date +%s); out=$(../ffmpeg -hide_banner -loglevel error -y -i video.mp4 -i audio.m4a -map 0:v:0 -map 1:a:0 -c copy -movflags +faststart ff.mp4 2>&1); st=$?
-            echo "ffmpeg status=$st in $(( $(date +%s) - s ))s: $(echo "$out" | tail -3)"; ls -la ff.mp4 | awk '{print "ffmpeg out", $5}'
-            ./probe ff.mp4
-            rm -f ff.mp4
-            s=$(date +%s); ./probe merge video.mp4 audio.m4a av.mp4; echo "AVFoundation took $(( $(date +%s) - s ))s"
-          } > ../join.txt 2>&1
-          python3 ../diag/annotate.py "Join 1.6 GB" ../join.txt
+            echo "onefile --version: $(t ./ytdlp_onefile --version) $(t ./ytdlp_onefile --version) $(t ./ytdlp_onefile --version) s"
+            echo "onedir  --version: $(t $EXE --version) $(t $EXE --version) $(t $EXE --version) s"
+            echo "onedir version: $($EXE --version)"
+            echo "onedir -U: $($EXE -U 2>&1 | tail -1)"
+          } > ../m.txt
+          echo "::notice title=yt-dlp start-up::$(perl -pe 's/\n/%0A/' ../m.txt)"
