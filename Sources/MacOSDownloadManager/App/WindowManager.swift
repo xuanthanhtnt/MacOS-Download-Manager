@@ -183,6 +183,12 @@ final class WindowManager {
         }
     }
 
+    func showExtensionSetup() {
+        present(key: "extension-setup", title: String(localized: "Add to Browser")) {
+            ExtensionSetupView()
+        }
+    }
+
     func showAbout() {
         present(key: "about", title: String(localized: "About MacOS Download Manager")) {
             AboutView()

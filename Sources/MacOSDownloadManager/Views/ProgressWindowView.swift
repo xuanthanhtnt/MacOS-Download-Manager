@@ -196,8 +196,18 @@ struct HLSPartsBar: View {
 }
 
 private struct ConnectionsTable: View {
-    let item: DownloadItem
+    let segments: [Segment]
     let active: Set<Int>
+
+    init(item: DownloadItem, active: Set<Int>) {
+        self.segments = item.segments
+        self.active = active
+    }
+
+    init(segments: [Segment], active: Set<Int>) {
+        self.segments = segments
+        self.active = active
+    }
 
     private struct Row: Identifiable {
         let id: Int
@@ -207,7 +217,7 @@ private struct ConnectionsTable: View {
     }
 
     private var rows: [Row] {
-        item.segments.enumerated().map { n, seg in
+        segments.enumerated().map { n, seg in
             let info: String
             if seg.isComplete {
                 info = String(localized: "Complete")
@@ -314,10 +324,12 @@ private struct MediaPartsView: View {
                     if part.done {
                         ProgressView(value: 1.0).tint(.green)
                     } else if part.direct == true && part.totalBytes > 0 && !part.segments.isEmpty {
-                        // Like IDM: every connection's part of the stream.
+                        // Like IDM: every connection's part of the stream, then one row per connection.
                         SegmentStrip(segments: part.segments, totalBytes: part.totalBytes,
                                      active: Set(activeSegments(index)))
                             .frame(height: 12)
+                        ConnectionsTable(segments: part.segments, active: Set(activeSegments(index)))
+                            .frame(height: min(190, CGFloat(part.segments.count) * 24 + 30))
                     } else {
                         ProgressView(value: progress(part))
                             .tint(.accentColor)

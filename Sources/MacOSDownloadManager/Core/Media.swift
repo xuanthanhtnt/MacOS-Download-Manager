@@ -454,7 +454,9 @@ final class MediaTools: ObservableObject {
     @Published private(set) var installStatus = ""
     @Published private(set) var lastError: String?
 
-    private static let ytdlpURL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+    /// The folder build of yt-dlp: it starts about twice as fast as the single-file build, which unpacks
+    /// itself on every run.
+    private static let ytdlpURL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos.zip"
     private static let ytdlpSums = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"
     private static var ffmpegArch: String {
         #if arch(arm64)
@@ -484,7 +486,17 @@ final class MediaTools: ObservableObject {
         return dir
     }
 
-    var ytdlpPath: String { toolsDirectory.appendingPathComponent("yt-dlp").path }
+    /// yt-dlp: the folder build (1.1.7+), or the single-file build installed by earlier versions.
+    var ytdlpPath: String {
+        FileManager.default.isExecutableFile(atPath: ytdlpFolderPath) ? ytdlpFolderPath : legacyYtdlpPath
+    }
+    private var ytdlpFolder: URL { toolsDirectory.appendingPathComponent("yt-dlp_macos", isDirectory: true) }
+    private var ytdlpFolderPath: String { ytdlpFolder.appendingPathComponent("yt-dlp_macos").path }
+    private var legacyYtdlpPath: String { toolsDirectory.appendingPathComponent("yt-dlp").path }
+    /// Installed with the single-file build of an earlier version: replaced in the background.
+    var hasLegacyYtdlp: Bool {
+        !FileManager.default.isExecutableFile(atPath: ytdlpFolderPath) && FileManager.default.isExecutableFile(atPath: legacyYtdlpPath)
+    }
     var denoPath: String { toolsDirectory.appendingPathComponent("deno").path }
     /// The app's own copy of ffmpeg (a copy installed with Homebrew is used too).
     var ffmpegToolPath: String { toolsDirectory.appendingPathComponent("ffmpeg").path }
@@ -494,8 +506,8 @@ final class MediaTools: ObservableObject {
         FileManager.default.isExecutableFile(atPath: ytdlpPath) && FileManager.default.isExecutableFile(atPath: denoPath)
     }
 
-    /// All components, ffmpeg included.
-    var isComplete: Bool { isInstalled && Self.findFFmpeg() != nil }
+    /// All components, ffmpeg included, yt-dlp in its fast folder build.
+    var isComplete: Bool { isInstalled && Self.findFFmpeg() != nil && !hasLegacyYtdlp }
 
     private init() {}
 
@@ -536,6 +548,18 @@ final class MediaTools: ObservableObject {
         await MainActor.run { self.installStatus = text }
     }
 
+    /// Earlier versions installed the slower single-file yt-dlp: replace it quietly in the background
+    /// (the old one is used until the new one is in place).
+    func upgradeInBackgroundIfNeeded() {
+        guard hasLegacyYtdlp else { return }
+        Task.detached { [self] in
+            try? await self.installQueue.run { [self] in
+                if self.hasLegacyYtdlp { try await self.installYtdlp() }
+            }
+            self.refreshStatus()
+        }
+    }
+
     /// Downloads (or re-downloads) yt-dlp, Deno and ffmpeg.
     func install() async throws {
         try await install(onlyMissing: false)
@@ -559,7 +583,12 @@ final class MediaTools: ObservableObject {
         try await installQueue.run { [self] in
             try await self.runInstall {
                 let fm = FileManager.default
-                if !onlyMissing || !fm.isExecutableFile(atPath: self.ytdlpPath) { try await self.installYtdlp() }
+                if !onlyMissing || !fm.isExecutableFile(atPath: self.ytdlpPath) {
+                    try await self.installYtdlp()
+                } else if self.hasLegacyYtdlp {
+                    // Faster folder build; the old one keeps working if the download fails.
+                    try? await self.installYtdlp()
+                }
                 if !onlyMissing || !fm.isExecutableFile(atPath: self.denoPath) { try await self.installDeno() }
                 // ffmpeg is only needed for some streams: a failure is reported but does not stop video downloads.
                 if !onlyMissing || Self.findFFmpeg() == nil {
@@ -624,13 +653,42 @@ final class MediaTools: ObservableObject {
         if let sumsFile = try? await fetch(Self.ytdlpSums) {
             sums = try? String(contentsOf: sumsFile, encoding: .utf8)
         }
-        guard let expected = sums.flatMap({ Self.firstHash(in: $0, for: "yt-dlp_macos") }) else {
+        guard let expected = sums.flatMap({ Self.firstHash(in: $0, for: "yt-dlp_macos.zip") }) else {
             throw MediaError.message(String(localized: "Could not verify the downloaded yt-dlp (checksum list missing)"))
         }
         guard try sha256(file) == expected else {
             throw MediaError.message(String(localized: "The downloaded yt-dlp failed the checksum check"))
         }
-        try placeExecutable(file, at: ytdlpPath)
+        let fm = FileManager.default
+        let unpack = toolsDirectory.appendingPathComponent("yt-dlp-unpack", isDirectory: true)
+        try? fm.removeItem(at: unpack)
+        try fm.createDirectory(at: unpack, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: unpack) }
+        let result = try await Self.runProcess("/usr/bin/ditto", ["-x", "-k", file.path, unpack.path])
+        // The archive holds the program "yt-dlp_macos" and its "_internal" folder (at the top or in one folder).
+        var root = unpack
+        if !fm.fileExists(atPath: root.appendingPathComponent("yt-dlp_macos").path),
+           let inner = try? fm.contentsOfDirectory(at: unpack, includingPropertiesForKeys: nil).first(where: \.hasDirectoryPath),
+           fm.fileExists(atPath: inner.appendingPathComponent("yt-dlp_macos").path) {
+            root = inner
+        }
+        guard result.status == 0, fm.fileExists(atPath: root.appendingPathComponent("yt-dlp_macos").path) else {
+            throw MediaError.message(String(localized: "Could not unpack yt-dlp"))
+        }
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.appendingPathComponent("yt-dlp_macos").path)
+        try? fm.removeItem(at: ytdlpFolder)
+        try fm.moveItem(at: root, to: ytdlpFolder)
+        Self.removeQuarantine(in: ytdlpFolder)
+        try? fm.removeItem(atPath: legacyYtdlpPath)
+    }
+
+    /// Helpers we verified ourselves must not be quarantined (versions before 1.1.2 quarantined them).
+    private static func removeQuarantine(in folder: URL) {
+        removexattr(folder.path, "com.apple.quarantine", 0)
+        guard let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) else { return }
+        for case let url as URL in files {
+            removexattr(url.path, "com.apple.quarantine", 0)
+        }
     }
 
     private func installDeno() async throws {
@@ -703,13 +761,13 @@ final class MediaTools: ObservableObject {
 
     /// Updates yt-dlp to the latest release (sites change often, yt-dlp follows quickly).
     func updateYtdlp() async throws {
-        await MainActor.run { self.installing = true }
-        defer { Task { await MainActor.run { self.installing = false } } }
-        await setStatus(String(localized: "Updating yt-dlp…"))
-        let result = try await Self.runProcess(ytdlpPath, ["-U"])
-        removexattr(ytdlpPath, "com.apple.quarantine", 0)
-        await setStatus(result.status == 0 ? String(localized: "yt-dlp is up to date") : result.stderrTail)
-        refreshStatus()
+        // The folder build cannot update itself ("unpackaged executable"): download the latest release.
+        try await installQueue.run { [self] in
+            try await self.runInstall {
+                await self.setStatus(String(localized: "Updating yt-dlp…"))
+                try await self.installYtdlp()
+            }
+        }
     }
 
     // MARK: Running yt-dlp

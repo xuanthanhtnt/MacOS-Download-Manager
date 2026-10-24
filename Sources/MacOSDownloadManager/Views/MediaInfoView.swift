@@ -249,6 +249,9 @@ struct MediaInfoView: View {
         tools.refreshStatus()
         if tools.isComplete {
             load()
+        } else if tools.isInstalled && MediaTools.findFFmpeg() != nil {
+            load() // only the yt-dlp upgrade is pending: it happens in the background
+            tools.upgradeInBackgroundIfNeeded()
         } else if tools.isInstalled {
             // ffmpeg (new in 1.1.3) is downloaded once, before the qualities are listed.
             phase = .loading
@@ -278,7 +281,8 @@ struct MediaInfoView: View {
         let url = pageURL
         Task {
             do {
-                let result = try await tools.extract(url: url, cookiesBrowser: cookies)
+                // Already read in the background while the page was open, or read now.
+                let result = try await MediaInfoCache.shared.info(for: url, cookies: cookies)
                 let list = MediaPlanner.options(for: result, ffmpeg: MediaTools.findFFmpeg() != nil)
                 guard !list.isEmpty else {
                     phase = .failed(String(localized: "No downloadable video was found on this page"))

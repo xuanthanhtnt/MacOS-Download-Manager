@@ -117,6 +117,8 @@ struct AppSettingsData: Codable, Equatable {
     var mediaCookiesBrowser: String = ""
     /// Preferred maximum video height (0 = best available).
     var mediaMaxHeight: Int = 0
+    /// Read the qualities of an open video page in the background (the list then appears at once).
+    var mediaPrefetch: Bool = true
 
     static let defaultUserAgent =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"

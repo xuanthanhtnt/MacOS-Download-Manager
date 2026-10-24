@@ -108,6 +108,8 @@ final class DownloadManager: ObservableObject {
                 WindowManager.shared.showLinks(requests)
             case .media(let url, let title):
                 self.handleMediaPage(url, title: title)
+            case .prefetch(let url):
+                self.prefetchMediaPage(url)
             }
         }
         ClipboardMonitor.shared.shouldCapture = { [weak self] url in
@@ -220,6 +222,13 @@ final class DownloadManager: ObservableObject {
     }
 
     /// A web page with a video (YouTube, …): shows the video download window.
+    /// Reads a video page's qualities in the background, so the list appears at once when asked for.
+    func prefetchMediaPage(_ url: URL) {
+        guard settings.data.mediaPrefetch, MediaSites.isVideoPage(url), MediaTools.shared.isInstalled else { return }
+        let cookies = settings.data.mediaCookiesBrowser
+        Task { await MediaInfoCache.shared.prefetch(url, cookies: cookies) }
+    }
+
     func handleMediaPage(_ url: URL, title: String? = nil) {
         let key = "media:" + url.absoluteString
         if let last = recentCaptures[key], Date().timeIntervalSince(last) < 5 { return }

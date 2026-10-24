@@ -448,7 +448,11 @@ private struct BrowserOptions: View {
             Section("Install the extension") {
                 Text("Chrome, Edge, Brave, Opera, Vivaldi, Arc: open the extensions page (chrome://extensions), turn on Developer mode, click \"Load unpacked\" and choose the \"chrome\" folder.")
                 Text("Firefox: open about:debugging → This Firefox → \"Load Temporary Add-on…\" and choose manifest.json in the \"firefox\" folder.")
-                Button("Show Extension Folder in Finder") { BrowserExtensionInstaller.reveal() }
+                HStack {
+                    Button("Add to Browser…") { WindowManager.shared.showExtensionSetup() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Show Extension Folder in Finder") { BrowserExtensionInstaller.reveal() }
+                }
             }
             Section("Safari and other browsers") {
                 Text("Drag links onto the MacOS Download Manager window or the drop target, copy them to the clipboard, or create a bookmark with this address to send the current page to MacOS Download Manager:")
@@ -517,6 +521,12 @@ enum BrowserExtensionInstaller {
 
     /// Called at launch: if the user loads the extension from the stable folder, refresh it after an app update,
     /// so the browser only needs a reload (↻) to get the new version.
+    /// The folder to load in the browser ("chrome" or "firefox"), copied to its stable place first.
+    static func prepareInstalledCopy(firefox: Bool) -> URL? {
+        guard copyBundled() else { return nil }
+        return installedCopy.appendingPathComponent(firefox ? "firefox" : "chrome", isDirectory: true)
+    }
+
     static func refreshInstalledCopyIfNeeded() {
         guard let source = bundled, FileManager.default.fileExists(atPath: installedCopy.path) else { return }
         if version(of: installedCopy) != version(of: source) {
@@ -595,6 +605,10 @@ private struct VideoOptions: View {
                         Text(verbatim: b.title).tag(b.id)
                     }
                 }
+                Toggle("Prepare the qualities while a video page is open in the browser", isOn: $settings.data.mediaPrefetch)
+                Text("The browser extension asks the app to read the video page in the background, so the quality list appears at once when you click “Download video”.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text("Cookies let yt-dlp open videos that need you to be signed in. macOS may ask for permission to read the browser's data; Safari needs Full Disk Access.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

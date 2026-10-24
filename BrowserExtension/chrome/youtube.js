@@ -65,14 +65,31 @@
     return button;
   }
 
+  // Ask the app to read this video's qualities in the background (the list then appears at once).
+  let prefetched = "";
+  let prefetchTimer = null;
+  function prefetch(delay) {
+    clearTimeout(prefetchTimer);
+    prefetchTimer = setTimeout(() => {
+      const url = location.href;
+      if (!isVideoPage() || url === prefetched) return;
+      prefetched = url;
+      try {
+        api.runtime.sendMessage({ type: "mediaPrefetch", url }, () => void api.runtime.lastError);
+      } catch (e) { /* extension reloaded */ }
+    }, delay);
+  }
+
   function update() {
     let button = document.getElementById(BUTTON_ID);
     const fullscreen = !!document.fullscreenElement;
     if (isVideoPage() && !fullscreen) {
       if (!button && document.body) {
         button = createButton();
+        button.addEventListener("mouseenter", () => prefetch(0));
         document.body.appendChild(button);
       }
+      prefetch(1500);
     } else if (button) {
       button.remove();
     }

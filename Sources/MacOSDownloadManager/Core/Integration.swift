@@ -70,6 +70,8 @@ final class BrowserBridgeServer {
         case links([URL], referer: String?)
         /// A page with a video to download (YouTube, …).
         case media(URL, title: String?)
+        /// A video page is open in the browser: read its qualities in the background.
+        case prefetch(URL)
     }
 
     var onMessage: ((Message) -> Void)?
@@ -224,6 +226,9 @@ final class BrowserBridgeServer {
                 } else if request.path.hasPrefix("/media"), let s = json["url"] as? String, let url = URL(string: s),
                           ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
                     message = .media(url, title: json["title"] as? String)
+                } else if request.path.hasPrefix("/prefetch"), let s = json["url"] as? String, let url = URL(string: s),
+                          ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    message = .prefetch(url)
                 } else {
                     status = "400 Bad Request"
                     body = ["ok": false, "error": "invalid request"]

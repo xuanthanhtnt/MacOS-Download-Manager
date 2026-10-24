@@ -90,6 +90,19 @@ final class MediaTests: XCTestCase {
         }
     }
 
+    /// The same video under different addresses shares one cached quality list (and one yt-dlp run).
+    func testMediaInfoCacheKeys() {
+        func key(_ s: String, _ cookies: String = "") -> String { MediaInfoCache.key(for: URL(string: s)!, cookies: cookies) }
+        let watch = key("https://www.youtube.com/watch?v=dMwX6nGufOw")
+        XCTAssertEqual(watch, "youtube:dMwX6nGufOw|")
+        XCTAssertEqual(key("https://www.youtube.com/watch?v=dMwX6nGufOw&list=RDdMwX6nGufOw&start_radio=1&t=1061s"), watch)
+        XCTAssertEqual(key("https://youtu.be/dMwX6nGufOw?t=5"), watch)
+        XCTAssertEqual(key("https://m.youtube.com/watch?v=dMwX6nGufOw"), watch)
+        XCTAssertEqual(key("https://www.youtube.com/shorts/abc123"), "youtube:abc123|")
+        XCTAssertNotEqual(key("https://www.youtube.com/watch?v=dMwX6nGufOw", "brave"), watch, "other cookies, other list")
+        XCTAssertEqual(key("https://vimeo.com/123#t=10"), "https://vimeo.com/123|")
+    }
+
     func testSniffContainers() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("mdm-sniff-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

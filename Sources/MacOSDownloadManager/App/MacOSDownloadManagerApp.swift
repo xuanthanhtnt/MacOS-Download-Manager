@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         DownloadManager.shared.bootstrap()
         WindowManager.shared.showMain()
+        MediaTools.shared.upgradeInBackgroundIfNeeded()
+        ExtensionSetup.showOnFirstLaunchIfNeeded()
         if let target = ProcessInfo.processInfo.environment["MDM_SELFTEST_YTDLP"], !target.isEmpty {
             SelfTest.runVideoTools(reportTo: target)
         }
@@ -173,7 +175,7 @@ struct AppCommands: Commands {
         }
         CommandGroup(replacing: .help) {
             Button("Report a Bug…") { AppInfo.reportBug() }
-            Button("Install Browser Extension…") { WindowManager.shared.showOptions(tab: .browser) }
+            Button("Install Browser Extension…") { WindowManager.shared.showExtensionSetup() }
             Button("MacOS Download Manager on GitHub") {
                 if let url = URL(string: "https://github.com/xuanthanhtnt/MacOS-Download-Manager") { NSWorkspace.shared.open(url) }
             }

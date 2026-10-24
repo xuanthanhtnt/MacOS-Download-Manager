@@ -1,5 +1,11 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.7
+- **Bảng kết nối như IDM cho video:** dưới thanh chia đoạn của luồng hình/tiếng là danh sách từng kết nối (số thứ tự, đã tải, trạng thái “Đang nhận dữ liệu…”).
+- **Danh sách chất lượng hiện gần như ngay:** khi bạn mở một video YouTube, tiện ích nhờ app đọc trước trang video ở chế độ nền (tắt được trong Tùy chọn → Video); bấm “Download video” là có danh sách. Khi bắt đầu tải, app dùng lại kết quả vừa đọc, không đọc trang lần nữa.
+- yt-dlp dùng bản dạng thư mục, khởi động nhanh gấp đôi (tự thay bản cũ ở chế độ nền).
+- **Trợ lý “Thêm vào trình duyệt”** (mở lần đầu, hoặc Tùy chọn → Trình duyệt / Help): tìm các trình duyệt có trên máy, mở trang tiện ích bằng một nút, và cho kéo thả thư mục tiện ích vào trang; báo “Đã kết nối” khi xong. (Trình duyệt không cho app nào tự cài tiện ích.)
+
 ### Có gì mới ở 1.1.6
 - **Video YouTube tải bằng nhiều kết nối như IDM, và nhìn thấy được:** cửa sổ tiến trình hiện thanh chia đoạn (mỗi kết nối một đoạn, xanh dương = đang nhận) và số kết nối của từng luồng hình/tiếng. Luồng hình dùng đủ số kết nối, luồng tiếng (nhỏ) dùng vài kết nối.
 - Luồng là tệp thường luôn được app tải đa kết nối, kể cả khi luồng còn lại phải để yt-dlp tải (HLS) – hai việc chạy song song.

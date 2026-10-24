@@ -165,6 +165,9 @@ try {
   }
   check(mediaReceived.length === 1 && String(mediaReceived[0].url).includes("/watch?v=test123"),
         `button sent the video page to the app (received: ${JSON.stringify(mediaReceived.map((m) => m.url))})`);
+  // While the video page is open, the app is asked to read its qualities in the background.
+  for (let i = 0; i < 10 && !requestPaths.some((p) => p.startsWith("/prefetch")); i++) await sleep(500);
+  check(requestPaths.some((p) => p.startsWith("/prefetch")), `video page prepared in the background (/prefetch requested)`);
   const manifestVersion = JSON.parse(fs.readFileSync(path.join(EXT, "manifest.json"), "utf8")).version;
   check(requestPaths.some((p) => p.includes(`ext=${manifestVersion}`)),
         `requests report the extension version ${manifestVersion} (e.g. ${requestPaths[requestPaths.length - 1]})`);

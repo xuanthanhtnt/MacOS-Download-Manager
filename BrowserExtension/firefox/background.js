@@ -404,6 +404,21 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ lastEvent: data.lastEvent });
     } else if (message.type === "mediaPage") {
       sendResponse({ ok: await sendMediaPage(message.url, message.title) });
+    } else if (message.type === "mediaPrefetch") {
+      // Quietly ask the app to read the video page now, so its quality list is ready when asked for.
+      const { port } = await settings();
+      let ok = false;
+      if (/^https?:/i.test(message.url || "")) {
+        try {
+          const res = await fetchWithTimeout(endpoint(port, "/prefetch"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: message.url })
+          }, 3000);
+          ok = res.ok;
+        } catch (e) { /* app not running */ }
+      }
+      sendResponse({ ok });
     } else if (message.type === "download") {
       sendResponse({ ok: await sendDownload({ url: message.url, referrer: message.referrer }) });
     } else {

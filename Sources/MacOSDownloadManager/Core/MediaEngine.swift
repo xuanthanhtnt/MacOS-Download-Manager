@@ -45,7 +45,12 @@ final class MediaDownloadEngine: DownloadEngine {
         self.maxHeight = maxHeight
         self.cookiesBrowser = cookiesBrowser
         self.parts = item.mediaParts
-        self.extractor = { url in try await MediaTools.shared.extract(url: url, cookiesBrowser: cookiesBrowser) }
+        // A new download reuses the qualities just read for the "Download video" window (no second
+        // reading of the page); a resumed one reads the page again (stream links expire).
+        let fresh = item.mediaParts.isEmpty
+        self.extractor = { url in
+            try await MediaInfoCache.shared.info(for: url, cookies: cookiesBrowser, maxAge: fresh ? 10 * 60 : 0)
+        }
     }
 
     // MARK: Start / stop
