@@ -414,4 +414,7 @@ VI = {
 'Drag this folder onto the extensions page': 'Kéo thư mục này thả vào trang tiện ích',
 'Later': 'Để sau',
 'Done': 'Xong',
+'The drive does not accept this file name. Rename the download, then click Resume.': 'Ổ đĩa không chấp nhận tên tệp này. Hãy đổi tên tệp tải rồi bấm Tải tiếp.',
+'The drive is read-only. macOS cannot write to NTFS drives without an NTFS driver: choose another folder or install one.': 'Ổ đĩa chỉ đọc. macOS không ghi được vào ổ NTFS khi chưa cài trình điều khiển NTFS: hãy chọn thư mục khác hoặc cài trình điều khiển.',
+'This file (%@) is too big for a FAT32 drive, which holds files under 4 GB. Choose another folder or a drive formatted as exFAT.': 'Tệp này (%@) quá lớn cho ổ FAT32 (chỉ chứa được tệp dưới 4 GB). Hãy chọn thư mục khác hoặc ổ định dạng exFAT.',
 }

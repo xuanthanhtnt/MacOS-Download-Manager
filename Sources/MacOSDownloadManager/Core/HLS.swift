@@ -471,8 +471,7 @@ final class HLSDownloadEngine: DownloadEngine {
     private func assemble(_ playlist: HLSPlaylist) throws -> String {
         let fm = FileManager.default
         if fm.fileExists(atPath: tempPath) { try fm.removeItem(atPath: tempPath) }
-        guard fm.createFile(atPath: tempPath, contents: nil) else { throw CocoaError(.fileWriteNoPermission) }
-        let out = try FileHandle(forWritingTo: URL(fileURLWithPath: tempPath))
+        let out = try FileNameUtils.openForUpdating(tempPath)
         defer { try? out.close() }
         if playlist.mapURL != nil, let mapData = fm.contents(atPath: mapPath) {
             try out.write(contentsOf: mapData)

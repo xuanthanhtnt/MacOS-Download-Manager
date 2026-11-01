@@ -164,12 +164,7 @@ final class HTTPDownloadEngine: NSObject, DownloadEngine, URLSessionDataDelegate
         let fm = FileManager.default
         let dir = (tempPath as NSString).deletingLastPathComponent
         try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: tempPath) {
-            guard fm.createFile(atPath: tempPath, contents: nil) else {
-                throw CocoaError(.fileWriteNoPermission)
-            }
-        }
-        file = try FileHandle(forUpdating: URL(fileURLWithPath: tempPath))
+        file = try FileNameUtils.openForUpdating(tempPath)
     }
 
     private func closeFile() {

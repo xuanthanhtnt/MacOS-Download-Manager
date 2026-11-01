@@ -111,6 +111,62 @@ enum FileNameUtils {
         return result
     }
 
+    /// Characters Windows file systems refuse in names, replaced by full-width look-alikes (as yt-dlp
+    /// does) so titles such as "Song | Artist" stay readable.
+    private static let windowsReplacements: [Character: Character] = [
+        "\\": "＼", "*": "＊", "?": "？", "\"": "＂", "<": "＜", ">": "＞", "|": "｜"
+    ]
+    private static let windowsReservedNames: Set<String> = Set(["CON", "PRN", "AUX", "NUL"]
+        + (1...9).map { "COM\($0)" } + (1...9).map { "LPT\($0)" })
+
+    /// Makes `name` valid on NTFS, exFAT and FAT32: no reserved characters, no trailing dot or space,
+    /// no device name such as "CON".
+    static func windowsSafe(_ name: String) -> String {
+        var result = String(name.map { c -> Character in
+            if let replacement = windowsReplacements[c] { return replacement }
+            return c.unicodeScalars.contains { $0.value < 0x20 } ? " " : c
+        })
+        while let last = result.last, last == "." || last == " " { result.removeLast() }
+        let stem = result.split(separator: ".", maxSplits: 1).first.map(String.init) ?? result
+        if windowsReservedNames.contains(stem.trimmingCharacters(in: .whitespaces).uppercased()) {
+            result = "_" + result
+        }
+        return result
+    }
+
+    /// The name to save `name` under in `directory`: drives that are not formatted by Apple (NTFS,
+    /// exFAT, FAT32, network shares…) refuse some names macOS accepts, e.g. "a | b.mp4".
+    /// The name is also decomposed (NFD), the form FileManager uses: FAT32 only renames a file when
+    /// it is given in the form it was created with, and yt-dlp/ffmpeg create files with the form they get.
+    static func fileName(_ name: String, forDirectory directory: String) -> String {
+        guard VolumeUtils.needsWindowsNames(directory) else { return name }
+        return windowsSafe(name).decomposedStringWithCanonicalMapping
+    }
+
+    /// Opens `path` for reading and writing, creating it when missing. The error says what is wrong
+    /// (a name the drive refuses, a read-only drive…) instead of a generic "no permission".
+    static func openForUpdating(_ path: String) throws -> FileHandle {
+        let fd = URL(fileURLWithPath: path).withUnsafeFileSystemRepresentation { rep -> Int32 in
+            guard let rep else { errno = EINVAL; return -1 }
+            return open(rep, O_RDWR | O_CREAT, 0o666)
+        }
+        guard fd >= 0 else { throw fileError(errno) }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
+    private static func fileError(_ code: Int32) -> Error {
+        let message: String
+        switch code {
+        case EINVAL, EILSEQ:
+            message = String(localized: "The drive does not accept this file name. Rename the download, then click Resume.")
+        case EROFS:
+            message = String(localized: "The drive is read-only. macOS cannot write to NTFS drives without an NTFS driver: choose another folder or install one.")
+        default:
+            return POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
+        return NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
     /// Appends an extension derived from the MIME type when the name has none.
     static func ensureExtension(_ name: String, mime: String?) -> String {
         guard (name as NSString).pathExtension.isEmpty,
@@ -142,6 +198,39 @@ enum FileNameUtils {
         if url.pathExtension.lowercased() == "m3u8" { return true }
         if let mime = mime?.lowercased(), mime.contains("mpegurl") { return true }
         return false
+    }
+}
+
+// MARK: - Volumes
+
+enum VolumeUtils {
+    /// File system of the volume holding `path` ("apfs", "hfs", "exfat", "msdos", "ntfs", "macfuse",
+    /// "smbfs"…). A folder that does not exist yet is looked up through its nearest existing parent.
+    static func fileSystemType(_ path: String) -> String? {
+        var current = path
+        while !current.isEmpty {
+            var info = statfs()
+            if statfs(current, &info) == 0 {
+                return withUnsafeBytes(of: info.f_fstypename) { raw in
+                    String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+                }.lowercased()
+            }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }
+            current = parent
+        }
+        return nil
+    }
+
+    /// Only Apple's own file systems accept every name macOS does.
+    static func needsWindowsNames(_ directory: String) -> Bool {
+        guard let type = fileSystemType(directory) else { return false }
+        return type != "apfs" && type != "hfs"
+    }
+
+    /// Largest file the volume can hold: FAT32 (msdos) stops just under 4 GB.
+    static func maxFileSize(_ directory: String) -> Int64? {
+        fileSystemType(directory) == "msdos" ? 0xFFFF_FFFF : nil
     }
 }
 

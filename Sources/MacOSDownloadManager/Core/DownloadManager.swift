@@ -302,6 +302,14 @@ final class DownloadManager: ObservableObject {
             return
         }
 
+        // A name the drive refuses (e.g. "a | b.mp4" on NTFS) was never created: choose the name again.
+        if let temp = item.tempPath, item.downloadedBytes == 0 {
+            let name = (temp as NSString).lastPathComponent
+            if FileNameUtils.fileName(name, forDirectory: (temp as NSString).deletingLastPathComponent) != name {
+                item.tempPath = nil
+            }
+        }
+
         if let temp = item.tempPath {
             // Video pages keep their streams in separate files; the media engine checks them itself.
             let exists = item.kind == .media
@@ -310,6 +318,7 @@ final class DownloadManager: ObservableObject {
             if item.kind == .http && !item.resumable && item.downloadedBytes > 0 { resetProgress(&item) }
         } else {
             resetProgress(&item)
+            item.fileName = FileNameUtils.fileName(item.fileName, forDirectory: item.directory)
             let reserved = Set(items.filter { $0.id != id && $0.status != .completed }.map(\.filePath))
             let target: String
             if settings.data.duplicateAction == .rename {
@@ -438,11 +447,18 @@ final class DownloadManager: ObservableObject {
         }
         switch event {
         case let .metadata(total, resumable, suggestedName, mime):
+            if let limit = VolumeUtils.maxFileSize(items[i].directory), total > limit {
+                engine.stop()
+                handle(.failed(String(format: String(localized: "This file (%@) is too big for a FAT32 drive, which holds files under 4 GB. Choose another folder or a drive formatted as exFAT."),
+                                      Fmt.bytes(total))), id: id, engine: engine)
+                return
+            }
             items[i].totalBytes = total
             items[i].resumable = resumable
             items[i].status = .downloading
             if items[i].autoName, let name = suggestedName, !name.isEmpty {
-                let newName = FileNameUtils.ensureExtension(FileNameUtils.sanitize(name), mime: mime)
+                let newName = FileNameUtils.fileName(FileNameUtils.ensureExtension(FileNameUtils.sanitize(name), mime: mime),
+                                                     forDirectory: items[i].directory)
                 if !newName.isEmpty && newName != items[i].fileName {
                     let oldCategory = items[i].category
                     let wasDefaultFolder = items[i].directory == settings.folder(forCategory: oldCategory)
@@ -528,6 +544,7 @@ final class DownloadManager: ObservableObject {
             name = (name as NSString).deletingPathExtension + "." + ext
         }
         try? fm.createDirectory(atPath: item.directory, withIntermediateDirectories: true)
+        name = FileNameUtils.fileName(name, forDirectory: item.directory)
         var destination = (item.directory as NSString).appendingPathComponent(name)
         if fm.fileExists(atPath: destination) {
             if settings.data.duplicateAction == .overwrite {

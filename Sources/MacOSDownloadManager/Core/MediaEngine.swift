@@ -442,8 +442,11 @@ final class MediaDownloadEngine: DownloadEngine {
         // The joined file is as big as the streams together: check the disk has room for it.
         let needed = paths.reduce(Int64(0)) { $0 + fileSize($1) }
         let folder = output.deletingLastPathComponent()
-        if let free = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
-           free < needed + 100 * 1024 * 1024 {
+        // Only APFS reports the capacity "for important usage": other drives (NTFS, exFAT, FAT32, network
+        // shares) say 0 there, so the plain free space counts too.
+        let values = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        let free = [values?.volumeAvailableCapacityForImportantUsage, values?.volumeAvailableCapacity.map(Int64.init)].compactMap { $0 }.max()
+        if let free, free < needed + 100 * 1024 * 1024 {
             let message = String(format: String(localized: "Not enough free disk space to join video and audio: %@ needed, %@ free. Free up space, then click Resume."),
                                  Fmt.bytes(needed + 100 * 1024 * 1024), Fmt.bytes(free))
             log("\(output.lastPathComponent): \(message)")

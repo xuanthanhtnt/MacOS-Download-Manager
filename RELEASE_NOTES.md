@@ -1,5 +1,13 @@
 ## MacOS Download Manager – trình tăng tốc tải xuống cho macOS
 
+### Có gì mới ở 1.1.8
+- **Sửa lỗi “Cannot create the file: … you don’t have permission” (không có quyền) khi lưu vào USB/ổ cứng NTFS**, exFAT, FAT32 hoặc ổ mạng: nguyên nhân là tên video có ký tự Windows không cho dùng (`| ? * " < > \`, rất hay gặp trong tiêu đề YouTube). Nay các ký tự đó được thay bằng ký tự trông giống hệt (`｜ ？ ＊ ＂ ＜ ＞ ＼`); tên tệp trên ổ của Mac (APFS) vẫn giữ nguyên.
+- Lượt tải đã báo lỗi này chỉ cần bấm **Tải tiếp**: app tự chọn lại tên hợp lệ.
+- Sửa lỗi **ghép hình và tiếng luôn báo “không đủ dung lượng trống”** khi lưu vào ổ NTFS, exFAT, FAT32 hoặc ổ mạng (NAS): các ổ này không báo dung lượng theo cách của APFS, nay app đọc đúng dung lượng trống.
+- Sửa lỗi tải xong nhưng **không đổi được sang tên cuối** với tên có dấu tiếng Việt trên ổ FAT32.
+- Lưu vào ổ **FAT32** một tệp từ 4 GB trở lên: app báo ngay (FAT32 không chứa được tệp ≥ 4 GB) thay vì tải tới 4 GB rồi mới lỗi.
+- Thông báo lỗi ghi đúng nguyên nhân (ổ chỉ đọc – ví dụ ổ NTFS khi chưa cài trình điều khiển NTFS –, tên tệp ổ không chấp nhận…) thay vì luôn báo “không có quyền”.
+
 ### Có gì mới ở 1.1.7
 - **Bảng kết nối như IDM cho video:** dưới thanh chia đoạn của luồng hình/tiếng là danh sách từng kết nối (số thứ tự, đã tải, trạng thái “Đang nhận dữ liệu…”).
 - **Danh sách chất lượng hiện gần như ngay:** khi bạn mở một video YouTube, tiện ích nhờ app đọc trước trang video ở chế độ nền (tắt được trong Tùy chọn → Video); bấm “Download video” là có danh sách. Khi bắt đầu tải, app dùng lại kết quả vừa đọc, không đọc trang lần nữa.

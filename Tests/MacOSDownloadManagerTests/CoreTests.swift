@@ -23,6 +23,17 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(FileNameUtils.nameFromURL(URL(string: "https://example.com/")!), "example.com")
     }
 
+    func testWindowsSafeNames() {
+        XCTAssertEqual(FileNameUtils.windowsSafe("Bolero | Vạn Lộc?.mp4"), "Bolero ｜ Vạn Lộc？.mp4")
+        XCTAssertEqual(FileNameUtils.windowsSafe("a*b\"c<d>e\\f"), "a＊b＂c＜d＞e＼f")
+        XCTAssertEqual(FileNameUtils.windowsSafe("line\tbreak. . "), "line break")
+        XCTAssertEqual(FileNameUtils.windowsSafe("con.txt"), "_con.txt")
+        XCTAssertEqual(FileNameUtils.windowsSafe("console.txt"), "console.txt")
+        // Apple file systems keep the name as it is.
+        XCTAssertEqual(FileNameUtils.fileName("a | b.mp4", forDirectory: NSTemporaryDirectory()), "a | b.mp4")
+        XCTAssertEqual(VolumeUtils.fileSystemType(NSTemporaryDirectory() + "not/created/yet"), "apfs")
+    }
+
     func testSegmentMath() {
         var s = Segment(id: 0, start: 100, end: 199, downloaded: 0)
         XCTAssertEqual(s.length, 100)
